@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LectureCrewLLM - Interactive Lecture Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1><i class="fas fa-graduation-cap"></i> LectureCrewLLM</h1>
+                <p class="subtitle">AI-Powered Lecture Analysis</p>
+            </div>
+
+            <!-- Session Manager -->
+            <div class="sidebar-section">
+                <h3>📚 Conversations</h3>
+                <div class="session-info">
+                    <small>Current:</small>
+                    <p class="current-session" id="currentSession">Loading...</p>
+                </div>
+                
+                <div class="button-group">
+                    <button id="btnSessions" class="btn btn-secondary btn-small">
+                        <i class="fas fa-exchange-alt"></i> Switch/Create
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cache Info -->
+            <div class="sidebar-section">
+                <h3>⚡ Cache</h3>
+                <div class="cache-stats" id="cacheStats">
+                    <div class="stat-item">
+                        <span class="stat-label">Cached:</span>
+                        <span class="stat-value" id="cacheCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Valid:</span>
+                        <span class="stat-value" id="cacheValid">0</span>
+                    </div>
+                </div>
+                
+                <button id="btnClearCache" class="btn btn-danger btn-small btn-icon">
+                    <i class="fas fa-trash"></i> Clear Cache
+                </button>
+            </div>
+
+            <!-- Controls -->
+            <div class="sidebar-section">
+                <h3>🎛️ Controls</h3>
+                <button id="btnShowHistory" class="btn btn-secondary btn-block">
+                    <i class="fas fa-history"></i> Show History
+                </button>
+                <button id="btnClearHistory" class="btn btn-warning btn-block">
+                    <i class="fas fa-broom"></i> Clear Conversation
+                </button>
+            </div>
+
+            <!-- Footer -->
+            <div class="sidebar-footer">
+                <small>Message count: <span id="messageCount">0</span></small>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="chat-header">
+                <h2 id="pageTitle">
+                    <i class="fas fa-comments"></i> Chat with Your Lectures
+                </h2>
+                <div class="header-status">
+                    <span class="status-indicator" id="statusIndicator">
+                        <i class="fas fa-circle"></i> Ready
+                    </span>
+                </div>
+            </header>
+
+            <!-- Chat Messages -->
+            <div class="chat-container" id="chatContainer">
+                <div class="welcome-message">
+                    <div class="welcome-box">
+                        <h3>👋 Welcome to LectureCrewLLM</h3>
+                        <p>Ask questions about your lectures and get AI-powered answers enhanced with web research.</p>
+                        <div class="features">
+                            <div class="feature-item">
+                                <i class="fas fa-database"></i>
+                                <span>RAG-Enhanced Analysis</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-globe"></i>
+                                <span>Web Research Integration</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-bolt"></i>
+                                <span>Smart Caching</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-floppy-disk"></i>
+                                <span>Multi-Session Support</span>
+                            </div>
+                        </div>
+                        <p class="hint-text">💡 Try asking: "What is transformer architecture?" or any question about your lectures.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="messageInput" 
+                        class="message-input" 
+                        placeholder="Ask a question about your lectures..."
+                        rows="3"
+                    ></textarea>
+                    <button id="btnSend" class="btn-send" title="Send (Shift+Enter)">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="input-hints">
+                    <small>Press <kbd>Shift</kbd> + <kbd>Enter</kbd> to send, <kbd>Enter</kbd> for new line</small>
+                </div>
+            </div>
+        </main>
+
+        <!-- Modals -->
+        
+        <!-- Sessions Modal -->
+        <div id="sessionsModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Manage Conversations</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                
+                <div class="modal-body">
+                    <!-- Existing Sessions -->
+                    <div class="sessions-section">
+                        <h3>Existing Sessions</h3>
+                        <div class="sessions-list" id="sessionsList">
+                            <p class="loading">Loading sessions...</p>
+                        </div>
+                    </div>
+
+                    <!-- Create New Session -->
+                    <div class="sessions-section">
+                        <h3>Create New Session</h3>
+                        <div class="new-session-form">
+                            <input 
+                                type="text" 
+                                id="newSessionName" 
+                                class="form-input" 
+                                placeholder="Session name (optional)"
+                            >
+                            <button id="btnCreateSession" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Create
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Modal -->
+        <div id="historyModal" class="modal hidden">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>Conversation History</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="history-list" id="historyList">
+                        <p class="loading">Loading history...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="spinner">
+                <div class="spinner-ring"></div>
+                <p id="loadingText">Processing your question...</p>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toastContainer" class="toast-container"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
