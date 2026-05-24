@@ -1,4 +1,4 @@
-__pychche__
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -9,12 +9,27 @@ ENV/
 env.bak/
 venv.bak/
 .idea/
-.vscode/
-.env
 .DS_Store
 *.log
+
+# Database & runtime data
 *.sqlite3
 *.db
+chroma_db/
+cache/answer_cache.json
+
+# Output files
+output/*.md
+
+# Conversation sessions
+conversations/sessions/*.json
+conversations/session.json
+
+# Sensitive files
+.env
+cookies.txt
+
+# Build artifacts
 *.bak
 *.swp
 *.swo
@@ -23,15 +38,12 @@ venv.bak/
 dist/
 build/
 *.egg
-*.egg-info/
 *.cover
 .coverage
 .coverage.*
 htmlcov/
 .tox/
 .nox/
-.coverage.*
-.cache/
 .pytest_cache/
 nosetests.xml
 coverage.xml

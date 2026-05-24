@@ -39,6 +39,7 @@ const newSessionName = document.getElementById('newSessionName');
 
 let isProcessing = false;
 let currentSessionLabel = 'Loading...';
+let activeEventSource = null;
 
 // ============================================================================
 // Event Listeners
@@ -102,9 +103,75 @@ function handleMessageInputKeydown(e) {
     }
 }
 
+function resetProgressSteps() {
+    document.querySelectorAll('.progress-step').forEach(el => {
+        el.classList.remove('active', 'done');
+    });
+}
+
+function setProgressStep(stepId) {
+    const step = document.getElementById(stepId);
+    if (!step) return;
+    // Mark previous steps as done
+    const allSteps = document.querySelectorAll('.progress-step');
+    let found = false;
+    allSteps.forEach(el => {
+        if (el === step) {
+            el.classList.add('active');
+            el.classList.remove('done');
+            found = true;
+        } else if (!found) {
+            el.classList.add('done');
+            el.classList.remove('active');
+        } else {
+            el.classList.remove('active', 'done');
+        }
+    });
+}
+
+function subscribeToProgress(taskId) {
+    if (activeEventSource) {
+        activeEventSource.close();
+    }
+    const es = new EventSource(`/api/chat/stream?task_id=${encodeURIComponent(taskId)}`);
+    activeEventSource = es;
+
+    es.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            switch (msg.step) {
+                case 'starting':
+                    setProgressStep('stepSearching');
+                    break;
+                case 'generating':
+                    setProgressStep('stepGenerating');
+                    break;
+                case 'complete':
+                    setProgressStep('stepGenerating');
+                    document.querySelectorAll('.progress-step').forEach(el => {
+                        el.classList.add('done');
+                        el.classList.remove('active');
+                    });
+                    es.close();
+                    activeEventSource = null;
+                    break;
+                case 'heartbeat':
+                    break;
+            }
+        } catch (e) {
+            // ignore parse errors
+        }
+    };
+
+    es.onerror = () => {
+        es.close();
+        activeEventSource = null;
+    };
+}
+
 async function sendMessage() {
     const message = messageInput.value.trim();
-    
+
     if (!message || isProcessing) {
         return;
     }
@@ -116,40 +183,51 @@ async function sendMessage() {
     // Add user message to chat
     addMessageToChat('user', message);
 
-    // Show loading overlay
+    // Show loading overlay with progress steps
     isProcessing = true;
+    resetProgressSteps();
     showLoadingOverlay(true);
 
     try {
+        // Get a fresh task_id for progress tracking
+        const taskResp = await fetch('/api/chat/task');
+        const taskData = await taskResp.json();
+        const taskId = taskData.task_id;
+
+        // Subscribe to SSE before sending the message
+        subscribeToProgress(taskId);
+
         // Send message to backend
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ message: message })
+            body: JSON.stringify({ message: message, task_id: taskId })
         });
 
         const data = await response.json();
 
+        // Clean up SSE
+        if (activeEventSource) {
+            activeEventSource.close();
+            activeEventSource = null;
+        }
+
         if (data.success) {
-            // Add assistant response
             const badge = data.from_cache ? 'cached' : 'fresh';
-            const badgeText = data.from_cache ? '⚡ From Cache' : '🔄 Fresh Response';
-            
+            const badgeText = data.from_cache ? 'From Cache' : 'Fresh Response';
+
             addMessageToChat('assistant', data.response, badge, badgeText);
-            
-            // Show toast
-            const toastMsg = data.from_cache 
-                ? '⚡ Answer found in cache!' 
-                : '✅ Answer generated successfully';
+
+            const toastMsg = data.from_cache
+                ? 'Answer found in cache!'
+                : 'Answer generated successfully';
             showToast(toastMsg, 'success');
 
-            // Update message count
             updateStatus();
         } else {
             showToast('Error: ' + data.error, 'error');
-            // Remove user message if there was an error
             const lastMessage = chatContainer.lastElementChild;
             if (lastMessage && lastMessage.classList.contains('user')) {
                 lastMessage.remove();
@@ -161,6 +239,10 @@ async function sendMessage() {
     } finally {
         isProcessing = false;
         showLoadingOverlay(false);
+        if (activeEventSource) {
+            activeEventSource.close();
+            activeEventSource = null;
+        }
         messageInput.focus();
     }
 }
