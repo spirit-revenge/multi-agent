@@ -1,11 +1,14 @@
 import os
 import hashlib
+import logging
 from pathlib import Path
 from typing import List, Dict, Any
 import json
 import numpy as np
 import chromadb
 from chromadb.utils import embedding_functions
+
+logger = logging.getLogger(__name__)
 # Custom local embedding function using sentence-transformers
 class LocalEmbeddingFunction:
     def __init__(self, model_name="paraphrase-multilingual-MiniLM-L12-v2", allow_fallback=True):
@@ -18,7 +21,7 @@ class LocalEmbeddingFunction:
             self._using_fallback = False
         except Exception as e:
             # Fallback dummy model to allow testing without the package installed
-            print(f"[rag_store] warning: sentence_transformers import failed: {e}. Using dummy fallback model.")
+            logger.warning("sentence_transformers import failed: %s. Using dummy fallback model.", e)
             self._using_fallback = True
             if allow_fallback:
                 class _DummyModel:
@@ -101,10 +104,10 @@ class LectureVectorStore:
         # Get all PDF/PPT files
         folder = Path(folder_path)
         files = list(folder.glob("*.pdf")) + list(folder.glob("*.pptx"))
-        print(f"[rag_store] index_files: found {len(files)} files in {folder_path}")
+        logger.debug("index_files: found {len(files)} files in {folder_path}")
         
         if not files:
-            print("No PDF/PPT files found in", folder_path)
+            logger.warning("No PDF/PPT files found in %s", folder_path)
             return
         
         # Load existing file hashes from collection metadata (if any)
@@ -121,19 +124,19 @@ class LectureVectorStore:
                 existing_hashes = raw
             else:
                 existing_hashes = {}
-            print(f"[rag_store] existing_hashes keys: {list(existing_hashes.keys())}")
+            logger.debug("existing_hashes keys: {list(existing_hashes.keys())}")
         except Exception as e:
-            print(f"[rag_store] warning: failed reading collection metadata: {e}")
+            logger.debug("warning: failed reading collection metadata: {e}")
             existing_hashes = {}
         
         for file_path in files:
-            print(f"[rag_store] processing file: {file_path}")
+            logger.debug("processing file: {file_path}")
             file_hash = self._get_file_hash(str(file_path))
-            print(f"[rag_store] file_hash: {file_hash}")
+            logger.debug("file_hash: {file_hash}")
             if not force_reindex and existing_hashes.get(str(file_path)) == file_hash:
-                print(f"[rag_store] Skipping {file_path.name} (unchanged)")
+                logger.debug("Skipping {file_path.name} (unchanged)")
                 continue
-            print(f"[rag_store] Indexing {file_path.name}...")
+            logger.debug("Indexing {file_path.name}...")
             # Extract text
             if file_path.suffix == '.pdf':
                 text = tool._read_pdf(file_path)
@@ -142,7 +145,7 @@ class LectureVectorStore:
             
             # Chunk
             chunks = self._chunk_text(text)
-            print(f"[rag_store] created {len(chunks)} chunks for {file_path.name}")
+            logger.debug("created {len(chunks)} chunks for {file_path.name}")
             # Generate ids: file_name + chunk_index + hash
             ids = [f"{file_path.stem}_{i}_{file_hash[:8]}" for i in range(len(chunks))]
             metadatas = [{"source": str(file_path), "chunk": i} for i in range(len(chunks))]
@@ -153,14 +156,14 @@ class LectureVectorStore:
                 existing_result = self.collection.get(where={"source": str(file_path)})
                 existing_ids = existing_result.get('ids', [])
             except Exception as e:
-                print(f"[rag_store] warning: collection.get failed for {file_path}: {e}")
+                logger.debug("warning: collection.get failed for {file_path}: {e}")
                 existing_ids = []
             if existing_ids:
-                print(f"[rag_store] deleting {len(existing_ids)} existing ids for {file_path.name}")
+                logger.debug("deleting {len(existing_ids)} existing ids for {file_path.name}")
                 try:
                     self.collection.delete(ids=existing_ids)
                 except Exception as e:
-                    print(f"[rag_store] warning: failed to delete existing ids: {e}")
+                    logger.debug("warning: failed to delete existing ids: {e}")
             # Add new chunks
             try:
                 pre_count = self.collection.count()
@@ -170,9 +173,9 @@ class LectureVectorStore:
                     metadatas=metadatas
                 )
                 post_count = self.collection.count()
-                print(f"[rag_store] collection count before add: {pre_count}, after add: {post_count}")
+                logger.debug("collection count before add: {pre_count}, after add: {post_count}")
             except Exception as e:
-                print(f"[rag_store] error: failed to add chunks for {file_path}: {e}")
+                logger.debug("error: failed to add chunks for {file_path}: {e}")
             # Update hash in collection metadata
             existing_hashes[str(file_path)] = file_hash
         
@@ -180,8 +183,8 @@ class LectureVectorStore:
         try:
             self.collection.modify(metadata={"file_hashes": json.dumps(existing_hashes)})
         except Exception as e:
-            print(f"[rag_store] warning: failed to modify collection metadata: {e}")
-        print(f"Indexing complete. Total chunks: {self.collection.count()}")
+            logger.debug("warning: failed to modify collection metadata: {e}")
+        logger.info("Indexing complete. Total chunks: %d", self.collection.count())
     
     def retrieve(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Retrieve top-k relevant chunks."""

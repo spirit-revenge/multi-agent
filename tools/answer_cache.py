@@ -5,9 +5,12 @@ Stores question-answer pairs with timestamps and metadata.
 
 import json
 import hashlib
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List
+
+logger = logging.getLogger(__name__)
 
 
 class CachedAnswer:
@@ -82,9 +85,9 @@ class AnswerCache:
             with open(self.cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 self.cache = [CachedAnswer.from_dict(item) for item in data.get("answers", [])]
-            print(f"Loaded {len(self.cache)} cached answers from {self.cache_file}")
+            logger.info("Loaded %d cached answers from %s", len(self.cache), self.cache_file)
         except Exception as e:
-            print(f"Failed to load cache: {e}. Starting with empty cache.")
+            logger.warning("Failed to load cache: %s. Starting with empty cache.", e)
             self.cache = []
     
     def save_cache(self) -> None:
@@ -94,7 +97,7 @@ class AnswerCache:
             with open(self.cache_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"Failed to save cache: {e}")
+            logger.error("Failed to save cache: %s", e)
     
     def _is_cache_valid(self, cached_answer: CachedAnswer) -> bool:
         """Check if a cached answer is still valid (not expired)."""
@@ -147,20 +150,20 @@ class AnswerCache:
                 # Update existing entry
                 self.cache[i] = CachedAnswer(question, answer)
                 self.save_cache()
-                print(f"Updated cached answer for: {question[:60]}...")
+                logger.info("Updated cached answer for: %s...", question[:60])
                 return
         
         # Add new entry
         self.cache.append(CachedAnswer(question, answer))
         self.save_cache()
-        print(f"Cached answer for: {question[:60]}...")
+        logger.info("Cached answer for: %s...", question[:60])
     
     def clear_cache(self) -> None:
         """Clear all cached answers."""
         self.cache = []
         if self.cache_file.exists():
             self.cache_file.unlink()
-        print("Cache cleared.")
+        logger.info("Cache cleared.")
     
     def get_stats(self) -> Dict:
         """Get cache statistics."""
@@ -200,6 +203,6 @@ class AnswerCache:
         removed = original_count - len(self.cache)
         if removed > 0:
             self.save_cache()
-            print(f"Cleaned up {removed} expired cache entries.")
+            logger.info("Cleaned up %d expired cache entries.", removed)
         else:
-            print("No expired cache entries to clean up.")
+            logger.info("No expired cache entries to clean up.")

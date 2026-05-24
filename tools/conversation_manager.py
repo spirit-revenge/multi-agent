@@ -1,7 +1,10 @@
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationMessage:
@@ -39,9 +42,9 @@ class ConversationManager:
                 with open(self.session_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.history = [ConversationMessage.from_dict(msg) for msg in data.get("messages", [])]
-                    print(f"Loaded {len(self.history)} previous messages from session")
+                    logger.info("Loaded %d previous messages from session", len(self.history))
             except Exception as e:
-                print(f"Failed to load session: {e}. Starting fresh.")
+                logger.warning("Failed to load session: %s. Starting fresh.", e)
                 self.history = []
         else:
             self.history = []
@@ -106,7 +109,7 @@ class ConversationManager:
         self.history = []
         if self.session_file.exists():
             self.session_file.unlink()
-        print("Conversation history cleared")
+        logger.info("Conversation history cleared")
     
     def __len__(self):
         return len(self.history)

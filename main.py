@@ -84,7 +84,11 @@ def create_tasks(folder_path="knowledge", user_question=None, conversation_manag
       1. Internet Researcher → web search
       2. Lecture Analyst   → final answer synthesis
     """
-    rag_context = vector_store.get_context_for_query(user_question, k=5)
+    try:
+        rag_context = vector_store.get_context_for_query(user_question, k=5)
+    except Exception as e:
+        logger.warning("RAG retrieval failed: %s. Falling back to file reader.", e)
+        rag_context = ""
     if not rag_context:
         rag_context = "No relevant lecture excerpts found in the vector store."
 
@@ -116,12 +120,13 @@ Return findings in English with source URLs. If the user is asking a follow-up q
 {{{{task_search.output}}}}
 
 Instructions:
-1. Read the Chinese lecture excerpts carefully — they are your primary source.
-2. Combine lecture knowledge with the web research results.
-3. Produce a final answer in **English Markdown**.
-4. Organize with headings, bullet points, and cite sources (file names for lectures, URLs for web).
-5. If the lectures contain specific terms or formulas, explain them in English.
-6. If this is a follow-up question, explicitly address how it relates to the previous conversation.""",
+1. Read the Chinese lecture excerpts carefully - they are your primary source.
+2. If web research results contain errors (e.g. "Error:" prefix), ignore them and rely solely on the lecture excerpts.
+3. Combine lecture knowledge with any valid web research results.
+4. Produce a final answer in **English Markdown**.
+5. Organize with headings, bullet points, and cite sources (file names for lectures, URLs for web).
+6. If the lectures contain specific terms or formulas, explain them in English.
+7. If this is a follow-up question, explicitly address how it relates to the previous conversation.""",
         expected_output="A well-structured English Markdown document with citations.",
         agent=content_analyst_agent(),
         context=[task_search],
