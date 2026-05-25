@@ -96,7 +96,7 @@ class ConversationManager:
         # 显示最近的对话（用户问题 + 关键回答摘要）
         for i, msg in enumerate(self.history[-4:]):  # 最多显示最近 4 条
             if msg.role == "user":
-                context += f"**User Q{len(self.history) - 4 + i}:** {msg.content[:300]}\n\n"
+                context += f"**User Q{i + 1}:** {msg.content[:300]}\n\n"
             else:
                 # 对助手的回复取前 500 字符
                 summary = msg.content[:500] + ("..." if len(msg.content) > 500 else "")
