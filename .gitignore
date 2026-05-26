@@ -13,6 +13,7 @@ venv.bak/
 .DS_Store
 *.log
 
+
 # Database & runtime data
 *.sqlite3
 *.db
@@ -49,3 +50,8 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.coverage
+
+# pptx, ppt, pdf files in knowledge directory
+knowledge/*.pptx
+knowledge/*.ppt
+knowledge/*.pdf
