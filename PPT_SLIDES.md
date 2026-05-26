@@ -54,15 +54,15 @@ Manager Agent
 
 ---
 
-## Slide 6 — 关键模块详解
+## Slide 6 — 关键模块详解（8 个模块）
+- `tools/local_file_tool.py` — PDF/PPTX 文本提取
 - `tools/rag_store.py` — ChromaDB 向量存储、增量索引、语义检索
 - `tools/conversation_manager.py` — 对话历史持久化、上下文构建
 - `tools/session_manager.py` — 多会话创建/删除/标签化
 - `tools/answer_cache.py` — 问题缓存（MD5 匹配、30 天 TTL）
 - `tools/status_tracker.py` — 内存队列 SSE 进度追踪
 - `tools/google_search_tool.py` — Google 可编程搜索引擎集成
-- `main.py` — CLI 入口 + `run_crew` 多代理编排
-- `web_ui.py` — Flask REST API + SSE 端点
+- `main.py` + `web_ui.py` — CLI 入口 + Flask REST API + SSE 端点
 
 ---
 
