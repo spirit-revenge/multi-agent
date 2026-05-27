@@ -17,9 +17,11 @@ mkdir -p "$SCRIPT_DIR/conversations/sessions"
 mkdir -p "$SCRIPT_DIR/cache"
 mkdir -p "$SCRIPT_DIR/output"
 
-# Load port from .env if available, default to 7860
+# Load .env (export only WEB_UI_PORT, let web_ui.py handle the rest)
 if [ -f "$SCRIPT_DIR/.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | grep WEB_UI_PORT | xargs)
+    set -a
+    . "$SCRIPT_DIR/.env"
+    set +a
 fi
 PORT=${WEB_UI_PORT:-7860}
 

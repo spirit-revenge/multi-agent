@@ -6,7 +6,7 @@ with real-time SSE progress updates.
 
 import os
 import json
-import threading
+import logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 from datetime import datetime, timedelta
@@ -17,6 +17,8 @@ from tools.answer_cache import AnswerCache
 from tools.session_manager import ConversationSessionManager
 from tools.status_tracker import status_tracker
 from main import run_crew, vector_store
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -157,6 +159,27 @@ def api_switch_session(file_path):
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
+@app.route('/api/sessions/<path:file_path>', methods=['DELETE'])
+def api_delete_session(file_path):
+    try:
+        session_path = Path(file_path)
+        if not session_manager.delete_session(session_path):
+            return jsonify({'success': False, 'error': 'Cannot delete this session'}), 400
+
+        # If the deleted session was the current one, switch to first available
+        if session.get('session_file') == file_path:
+            sessions = session_manager.list_sessions()
+            if sessions:
+                session['session_file'] = str(sessions[0].file_path)
+            else:
+                new_path = session_manager.create_session("default")
+                session['session_file'] = str(new_path)
+
+        return jsonify({'success': True, 'message': 'Session deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
     try:
@@ -192,33 +215,20 @@ def api_chat():
         if not task_id:
             task_id = status_tracker.create_task()
 
-        result_container = {}
-        error_container = {}
-
-        def _run():
-            try:
-                result_container['answer'] = run_crew(
-                    folder_path="knowledge",
-                    user_question=user_message,
-                    conversation_manager=conv_mgr,
-                    task_id=task_id,
-                )
-            except Exception as e:
-                error_container['error'] = str(e)
-
-        thread = threading.Thread(target=_run)
-        thread.start()
-        thread.join()
-
-        status_tracker.cleanup(task_id)
-
-        if error_container:
+        try:
+            final_answer = run_crew(
+                folder_path="knowledge",
+                user_question=user_message,
+                conversation_manager=conv_mgr,
+                task_id=task_id,
+            )
+        except Exception as e:
             if conv_mgr.history and conv_mgr.history[-1].role == "user":
                 conv_mgr.history.pop()
                 conv_mgr.save_session()
-            return jsonify({'success': False, 'error': error_container['error']}), 500
-
-        final_answer = result_container['answer']
+            return jsonify({'success': False, 'error': str(e)}), 500
+        finally:
+            status_tracker.cleanup(task_id)
         conv_mgr.add_message("assistant", final_answer)
         conv_mgr.save_session()
         answer_cache.save_answer(user_message, final_answer)
@@ -304,7 +314,7 @@ def api_get_cache():
                 recent.append({
                     'question': item.question[:100],
                     'timestamp': item.timestamp,
-                    'is_valid': answer_cache._is_expired(item) is False
+                    'is_valid': answer_cache._is_cache_valid(item)
                 })
         return jsonify({
             'success': True,
@@ -343,6 +353,114 @@ def api_get_status():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
+
+
+# ============================================================================
+# Knowledge (File) Management API
+# ============================================================================
+
+@app.route('/api/knowledge', methods=['GET'])
+def api_list_knowledge():
+    try:
+        knowledge_dir = Path("knowledge")
+        files = []
+        for f in sorted(knowledge_dir.iterdir()):
+            if f.suffix.lower() not in ('.pdf', '.pptx'):
+                continue
+            # Check if indexed by looking up a single chunk in ChromaDB
+            indexed = False
+            try:
+                existing = vector_store.collection.get(
+                    where={"source": str(f)},
+                    limit=1
+                )
+                indexed = len(existing.get('ids', [])) > 0
+            except Exception:
+                pass
+            files.append({
+                'name': f.name,
+                'size': f.stat().st_size,
+                'indexed': indexed,
+                'mtime': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+            })
+        return jsonify({'success': True, 'files': files})
+    except Exception as e:
+        logger.warning("Failed to list knowledge files: %s", e)
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/knowledge/upload', methods=['POST'])
+def api_upload_knowledge():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+
+        uploaded_file = request.files['file']
+        if uploaded_file.filename == '':
+            return jsonify({'success': False, 'error': 'Empty filename'}), 400
+
+        ext = Path(uploaded_file.filename).suffix.lower()
+        if ext not in ('.pdf', '.pptx'):
+            return jsonify({
+                'success': False,
+                'error': f'Unsupported file type: {ext}. Only .pdf and .pptx are allowed.'
+            }), 400
+
+        dest = Path("knowledge") / uploaded_file.filename
+        uploaded_file.save(str(dest))
+
+        # Incremental index
+        try:
+            vector_store.index_files("knowledge", force_reindex=False)
+        except Exception as e:
+            logger.warning("File saved but indexing failed: %s", e)
+
+        return jsonify({
+            'success': True,
+            'message': f'File "{uploaded_file.filename}" uploaded and indexed'
+        })
+    except Exception as e:
+        logger.warning("Upload failed: %s", e)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/<filename>', methods=['DELETE'])
+def api_delete_knowledge(filename):
+    try:
+        # Prevent path traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({'success': False, 'error': 'Invalid filename'}), 400
+
+        file_path = Path("knowledge") / filename
+        if not file_path.exists():
+            return jsonify({'success': False, 'error': 'File not found'}), 404
+
+        # Remove chunks from ChromaDB
+        try:
+            existing = vector_store.collection.get(
+                where={"source": str(file_path)}
+            )
+            existing_ids = existing.get('ids', [])
+            if existing_ids:
+                vector_store.collection.delete(ids=existing_ids)
+                logger.info("Removed %d chunks for %s", len(existing_ids), filename)
+        except Exception as e:
+            logger.warning("Failed to remove from vector store: %s", e)
+
+        # Delete the actual file
+        file_path.unlink()
+        return jsonify({'success': True, 'message': f'File "{filename}" deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/reindex', methods=['POST'])
+def api_reindex_knowledge():
+    try:
+        vector_store.index_files("knowledge", force_reindex=True)
+        return jsonify({'success': True, 'message': 'Reindexing complete'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.errorhandler(404)

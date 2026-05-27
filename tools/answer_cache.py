@@ -6,6 +6,7 @@ Stores question-answer pairs with timestamps and metadata.
 import json
 import hashlib
 import logging
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -22,11 +23,39 @@ class CachedAnswer:
         self.timestamp = timestamp or datetime.now().isoformat()
         self.question_hash = self._hash_question(question)
     
+    # English stop words commonly used in questions — safe to strip for matching
+    _STOP_WORDS = frozenset({
+        'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
+        'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+        'what', 'which', 'who', 'whom', 'whose', 'why', 'how',
+        'where', 'when', 'in', 'on', 'at', 'to', 'for', 'of', 'by', 'with',
+        'from', 'about', 'into', 'through', 'during', 'before', 'after',
+        'and', 'or', 'but', 'not', 'no', 'if', 'so',
+    })
+
     @staticmethod
     def _hash_question(question: str) -> str:
-        """Create a normalized hash of the question for matching."""
-        # Normalize: lowercase, strip whitespace, remove punctuation for comparison
+        """Create a normalized hash of the question for matching.
+
+        Normalization pipeline:
+        1. Lowercase + strip whitespace
+        2. Remove punctuation (keep letters, digits, spaces)
+        3. Collapse multiple spaces → single space
+        4. Remove common English stop words
+        5. Strip & rejoin sorted unique words (so word order doesn't matter)
+        """
         normalized = question.lower().strip()
+        # Remove punctuation: keep a-z, 0-9, whitespace
+        normalized = re.sub(r'[^\w\s]', ' ', normalized)
+        # Collapse whitespace
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        # Tokenize and remove stop words
+        tokens = [w for w in normalized.split() if w not in CachedAnswer._STOP_WORDS]
+        # If after removing stop words we have nothing, fall back to raw tokens
+        if not tokens:
+            tokens = normalized.split()
+        # Sort uniquely — "what is BERT" ≡ "BERT what is"
+        normalized = ' '.join(sorted(set(tokens)))
         return hashlib.md5(normalized.encode()).hexdigest()
     
     def to_dict(self) -> Dict:

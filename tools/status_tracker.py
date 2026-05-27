@@ -32,7 +32,7 @@ class CrewStatusTracker:
             return
         while True:
             try:
-                msg = q.get(timeout=15)
+                msg = q.get(timeout=8)
                 yield msg
             except queue.Empty:
                 yield {"step": "heartbeat", "detail": ""}

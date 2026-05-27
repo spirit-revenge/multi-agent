@@ -84,3 +84,27 @@ class TestAnswerCache:
         result = cache2.get_answer("persistent q")
         assert result == "persistent a"
         path.unlink(missing_ok=True)
+
+    def test_cache_punctuation_tolerant(self):
+        """Punctuation should not prevent a match."""
+        cache, path = self._make_cache()
+        cache.save_answer("Explain BERT architecture.", "BERT uses transformers...")
+        result = cache.get_answer("Explain BERT architecture?")
+        assert result == "BERT uses transformers..."
+        path.unlink(missing_ok=True)
+
+    def test_cache_stop_words_removed(self):
+        """Stop words (what, is, the, etc.) should not affect matching."""
+        cache, path = self._make_cache()
+        cache.save_answer("What is the transformer?", "Transformer is an architecture...")
+        result = cache.get_answer("transformer")
+        assert result == "Transformer is an architecture..."
+        path.unlink(missing_ok=True)
+
+    def test_cache_word_order_independent(self):
+        """Same words in different order should match."""
+        cache, path = self._make_cache()
+        cache.save_answer("BERT vs GPT", "BERT and GPT are different...")
+        result = cache.get_answer("GPT vs BERT")
+        assert result == "BERT and GPT are different..."
+        path.unlink(missing_ok=True)

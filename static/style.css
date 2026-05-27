@@ -392,6 +392,76 @@ html, body {
     background: var(--info);
 }
 
+/* ============================================================================
+   Markdown Tables, Blockquotes, Lists & Horizontal Rules
+   ============================================================================ */
+
+.message-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 13px;
+}
+
+.message-content th,
+.message-content td {
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.message-content th {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+}
+
+.message-content tr:nth-child(even) {
+    background: var(--bg-tertiary);
+}
+
+.message-content blockquote {
+    border-left: 4px solid var(--primary);
+    margin: 12px 0;
+    padding: 8px 16px;
+    background: rgba(37, 99, 235, 0.05);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.message.user .message-content blockquote {
+    border-left-color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.message-content blockquote p {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.message.user .message-content blockquote p {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.message-content hr {
+    border: none;
+    border-top: 2px solid var(--border-color);
+    margin: 16px 0;
+}
+
+.message-content ul,
+.message-content ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.message-content li {
+    margin-bottom: 4px;
+}
+
+.message.user .message-content ul,
+.message.user .message-content ol {
+    padding-left: 24px;
+}
+
 /* Input Area */
 .input-area {
     background: var(--bg-secondary);
@@ -667,6 +737,10 @@ html, body {
 }
 
 .session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 12px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
@@ -685,6 +759,11 @@ html, body {
     border-color: var(--primary);
 }
 
+.session-info-wrap {
+    flex: 1;
+    min-width: 0;
+}
+
 .session-name {
     font-weight: 500;
     color: var(--text-primary);
@@ -696,9 +775,101 @@ html, body {
     color: var(--text-tertiary);
 }
 
+.session-delete {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    transition: var(--transition);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.session-delete:hover {
+    color: var(--danger);
+    background: rgba(239, 68, 68, 0.1);
+}
+
 .new-session-form {
     display: flex;
     gap: 8px;
+}
+
+/* ============================================================================
+   Knowledge (File) List
+   ============================================================================ */
+
+.knowledge-list {
+    max-height: 180px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.knowledge-empty {
+    font-size: 12px;
+    opacity: 0.7;
+    text-align: center;
+    padding: 8px;
+}
+
+.knowledge-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-size: 12px;
+    gap: 4px;
+}
+
+.knowledge-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.knowledge-icon {
+    flex-shrink: 0;
+    font-size: 10px;
+}
+
+.knowledge-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+}
+
+.knowledge-size {
+    font-size: 10px;
+    opacity: 0.6;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.knowledge-delete {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: var(--transition);
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.knowledge-delete:hover {
+    color: #fff;
+    background: rgba(239, 68, 68, 0.3);
 }
 
 .form-input {

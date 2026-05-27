@@ -31,6 +31,23 @@
                 </div>
             </div>
 
+            <!-- Knowledge Files -->
+            <div class="sidebar-section">
+                <h3>📁 Lecture Files</h3>
+                <div class="knowledge-list" id="knowledgeList">
+                    <p class="knowledge-empty">No files loaded</p>
+                </div>
+                
+                <div class="button-group">
+                    <button id="btnUploadFile" class="btn btn-secondary btn-small">
+                        <i class="fas fa-upload"></i> Upload
+                    </button>
+                    <button id="btnReindex" class="btn btn-secondary btn-small">
+                        <i class="fas fa-sync"></i> Reindex
+                    </button>
+                </div>
+            </div>
+
             <!-- Cache Info -->
             <div class="sidebar-section">
                 <h3>⚡ Cache</h3>
@@ -203,6 +220,8 @@
 
         <!-- Toast Notifications -->
         <div id="toastContainer" class="toast-container"></div>
+        <!-- Hidden file input for upload -->
+        <input type="file" id="fileInput" class="hidden" accept=".pdf,.pptx" multiple>
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>

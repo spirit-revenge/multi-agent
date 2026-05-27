@@ -93,21 +93,34 @@ class LectureVectorStore:
             start += chunk_size - overlap
         return chunks
     
-    def index_files(self, folder_path: str, force_reindex=False):
+    def index_files(self, folder_path: str, force_reindex=False, progress_callback=None):
         """
         Scan folder, extract text from PDF/PPT, chunk, and index into Chroma.
         Only indexes files that have changed (based on hash) unless force_reindex=True.
+
+        Args:
+            folder_path: Path to directory containing PDF/PPTX files
+            force_reindex: If True, re-index all files regardless of hash
+            progress_callback: Optional callable(status, message) for progress reporting
         """
+        if progress_callback:
+            progress_callback("indexing", "Scanning files...")
+
         from tools.local_file_tool import ReadLocalLectureFilesTool
         tool = ReadLocalLectureFilesTool()
         
         # Get all PDF/PPT files
         folder = Path(folder_path)
         files = list(folder.glob("*.pdf")) + list(folder.glob("*.pptx"))
-        logger.debug("index_files: found {len(files)} files in {folder_path}")
-        
+        logger.debug(f"index_files: found {len(files)} files in {folder_path}")
+
+        if progress_callback:
+            progress_callback("indexing", f"Found {len(files)} file(s)")
+
         if not files:
             logger.warning("No PDF/PPT files found in %s", folder_path)
+            if progress_callback:
+                progress_callback("complete", "No files to index")
             return
         
         # Load existing file hashes from collection metadata (if any)
@@ -124,19 +137,24 @@ class LectureVectorStore:
                 existing_hashes = raw
             else:
                 existing_hashes = {}
-            logger.debug("existing_hashes keys: {list(existing_hashes.keys())}")
+            logger.debug(f"existing_hashes keys: {list(existing_hashes.keys())}")
         except Exception as e:
-            logger.debug("warning: failed reading collection metadata: {e}")
+            logger.debug(f"warning: failed reading collection metadata: {e}")
             existing_hashes = {}
         
-        for file_path in files:
-            logger.debug("processing file: {file_path}")
+        total = len(files)
+        for idx, file_path in enumerate(files, start=1):
+            logger.debug(f"processing file: {file_path}")
             file_hash = self._get_file_hash(str(file_path))
-            logger.debug("file_hash: {file_hash}")
+            logger.debug(f"file_hash: {file_hash}")
             if not force_reindex and existing_hashes.get(str(file_path)) == file_hash:
-                logger.debug("Skipping {file_path.name} (unchanged)")
+                logger.debug(f"Skipping {file_path.name} (unchanged)")
                 continue
-            logger.debug("Indexing {file_path.name}...")
+
+            if progress_callback:
+                progress_callback("indexing", f"[{idx}/{total}] Processing {file_path.name}...")
+
+            logger.debug(f"Indexing {file_path.name}...")
             # Extract text
             if file_path.suffix == '.pdf':
                 text = tool._read_pdf(file_path)
@@ -145,7 +163,7 @@ class LectureVectorStore:
             
             # Chunk
             chunks = self._chunk_text(text)
-            logger.debug("created {len(chunks)} chunks for {file_path.name}")
+            logger.debug(f"created {len(chunks)} chunks for {file_path.name}")
             # Generate ids: file_name + chunk_index + hash
             ids = [f"{file_path.stem}_{i}_{file_hash[:8]}" for i in range(len(chunks))]
             metadatas = [{"source": str(file_path), "chunk": i} for i in range(len(chunks))]
@@ -156,14 +174,14 @@ class LectureVectorStore:
                 existing_result = self.collection.get(where={"source": str(file_path)})
                 existing_ids = existing_result.get('ids', [])
             except Exception as e:
-                logger.debug("warning: collection.get failed for {file_path}: {e}")
+                logger.debug(f"warning: collection.get failed for {file_path}: {e}")
                 existing_ids = []
             if existing_ids:
-                logger.debug("deleting {len(existing_ids)} existing ids for {file_path.name}")
+                logger.debug(f"deleting {len(existing_ids)} existing ids for {file_path.name}")
                 try:
                     self.collection.delete(ids=existing_ids)
                 except Exception as e:
-                    logger.debug("warning: failed to delete existing ids: {e}")
+                    logger.debug(f"warning: failed to delete existing ids: {e}")
             # Add new chunks
             try:
                 pre_count = self.collection.count()
@@ -173,18 +191,25 @@ class LectureVectorStore:
                     metadatas=metadatas
                 )
                 post_count = self.collection.count()
-                logger.debug("collection count before add: {pre_count}, after add: {post_count}")
+                logger.debug(f"collection count before add: {pre_count}, after add: {post_count}")
             except Exception as e:
-                logger.debug("error: failed to add chunks for {file_path}: {e}")
+                logger.debug(f"error: failed to add chunks for {file_path}: {e}")
             # Update hash in collection metadata
             existing_hashes[str(file_path)] = file_hash
-        
+
+            if progress_callback:
+                progress_callback("indexing", f"[{idx}/{total}] Indexed {len(chunks)} chunks from {file_path.name}")
+
         # Save updated hashes to collection metadata (serialize as JSON string)
         try:
             self.collection.modify(metadata={"file_hashes": json.dumps(existing_hashes)})
         except Exception as e:
-            logger.debug("warning: failed to modify collection metadata: {e}")
-        logger.info("Indexing complete. Total chunks: %d", self.collection.count())
+            logger.debug(f"warning: failed to modify collection metadata: {e}")
+        total_chunks = self.collection.count()
+        logger.info("Indexing complete. Total chunks: %d", total_chunks)
+
+        if progress_callback:
+            progress_callback("complete", f"Indexing complete. Total chunks: {total_chunks}")
     
     def retrieve(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Retrieve top-k relevant chunks."""

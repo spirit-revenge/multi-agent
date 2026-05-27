@@ -25,6 +25,12 @@ const historyModal = document.getElementById('historyModal');
 const sessionsList = document.getElementById('sessionsList');
 const historyList = document.getElementById('historyList');
 
+// Sidebar knowledge elements
+const knowledgeList = document.getElementById('knowledgeList');
+const btnUploadFile = document.getElementById('btnUploadFile');
+const btnReindex = document.getElementById('btnReindex');
+const fileInput = document.getElementById('fileInput');
+
 // Buttons
 const btnSessions = document.getElementById('btnSessions');
 const btnShowHistory = document.getElementById('btnShowHistory');
@@ -64,6 +70,11 @@ function setupEventListeners() {
     // History
     btnShowHistory.addEventListener('click', openHistoryModal);
     btnClearHistory.addEventListener('click', clearConversation);
+
+    // Knowledge management
+    btnUploadFile.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFileUpload);
+    btnReindex.addEventListener('click', reindexKnowledge);
 
     // Cache
     btnClearCache.addEventListener('click', clearCache);
@@ -297,42 +308,142 @@ function addMessageToChat(role, content, badge = null, badgeText = null) {
 }
 
 function markdownToHtml(markdown) {
-    // Simple markdown to HTML conversion
-    let html = markdown
-        // Code blocks
-        .replace(/```[\s\S]*?```/g, (match) => {
-            const code = match.replace(/```/g, '').trim();
-            return `<pre><code>${escapeHtml(code)}</code></pre>`;
-        })
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // Links
+    // —— Step 1: Extract & protect fenced code blocks ——
+    const blocks = [];
+    let html = markdown.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+        const placeholder = `%%BLOCK_${blocks.length}%%`;
+        const langClass = lang ? ` class="language-${escapeHtml(lang)}"` : '';
+        blocks.push(`<pre><code${langClass}>${escapeHtml(code.trimEnd())}</code></pre>`);
+        return placeholder;
+    });
+
+    // —— Step 2: Extract & protect inline code ——
+    html = html.replace(/`([^`]+)`/g, (_, code) => {
+        const placeholder = `%%BLOCK_${blocks.length}%%`;
+        blocks.push(`<code>${escapeHtml(code)}</code>`);
+        return placeholder;
+    });
+
+    // —— Step 3: Process tables (multi-line blocks with | alignment) ——
+    const paragraphBlocks = html.split(/\n\s*\n/);
+    for (let b = 0; b < paragraphBlocks.length; b++) {
+        const tableLines = paragraphBlocks[b].split('\n');
+        // Heuristic: at least 3 lines, all start with |, second line is separator
+        if (tableLines.length >= 3 &&
+            tableLines.every(l => l.trim().startsWith('|')) &&
+            /^\|[:\- ]+\|/.test(tableLines[1].trim())) {
+            const headerCells = tableLines[0].split('|').map(c => c.trim()).filter(Boolean);
+            const bodyRows = tableLines.slice(2).map(row =>
+                row.split('|').map(c => c.trim()).filter(Boolean)
+            );
+            let tbl = '<table>\n<thead>\n<tr>';
+            headerCells.forEach(c => { tbl += `<th>${c}</th>`; });
+            tbl += '</tr>\n</thead>\n<tbody>\n';
+            bodyRows.forEach(row => {
+                tbl += '<tr>';
+                row.forEach((c, i) => { tbl += `<td>${c || ''}</td>`; });
+                tbl += '</tr>\n';
+            });
+            tbl += '</tbody>\n</table>';
+            paragraphBlocks[b] = tbl;
+        }
+    }
+    html = paragraphBlocks.join('\n\n');
+
+    // —— Step 4: Line-by-line block-level processing ——
+    const lines = html.split('\n');
+    const out = [];
+    let listType = null;   // 'ul' | 'ol' | null
+    let listBuffer = [];
+
+    function flushList() {
+        if (listType && listBuffer.length > 0) {
+            out.push(`<${listType}>`);
+            out.push(...listBuffer);
+            out.push(`</${listType}>`);
+        }
+        listType = null;
+        listBuffer = [];
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const t = line.trim();
+
+        // Empty line → flush any open list
+        if (t === '') {
+            flushList();
+            out.push('');
+            continue;
+        }
+
+        // Skip if it's a protected block placeholder
+        if (/^%%BLOCK_\d+%%$/.test(t)) {
+            flushList();
+            out.push(line);
+            continue;
+        }
+
+        // Skip if already a rendered HTML tag
+        if (t.startsWith('<')) {
+            flushList();
+            out.push(line);
+            continue;
+        }
+
+        // Horizontal rule
+        if (/^(?:---|\*\*\*|___)\s*$/.test(t)) {
+            flushList();
+            out.push('<hr>');
+            continue;
+        }
+
+        // Heading
+        if (/^#{1,3}\s/.test(t)) {
+            flushList();
+            const level = t.match(/^#+/)[0].length;
+            out.push(`<h${level}>${t.replace(/^#+\s*/, '')}</h${level}>`);
+            continue;
+        }
+
+        // Blockquote
+        if (/^>\s/.test(t)) {
+            flushList();
+            out.push(`<blockquote><p>${t.replace(/^>\s*/, '')}</p></blockquote>`);
+            continue;
+        }
+
+        // Unordered list item
+        if (/^[\*\-]\s/.test(t)) {
+            if (listType !== 'ul') { flushList(); listType = 'ul'; }
+            listBuffer.push(`  <li>${t.replace(/^[\*\-]\s*/, '')}</li>`);
+            continue;
+        }
+
+        // Ordered list item
+        if (/^\d+\.\s/.test(t)) {
+            if (listType !== 'ol') { flushList(); listType = 'ol'; }
+            listBuffer.push(`  <li>${t.replace(/^\d+\.\s*/, '')}</li>`);
+            continue;
+        }
+
+        // Plain text → paragraph
+        flushList();
+        out.push(`<p>${line}</p>`);
+    }
+    flushList();
+    html = out.join('\n');
+
+    // —— Step 5: Inline formatting (applied last so block tags stay intact) ——
+    html = html
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-        // Bold
         .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-        // Italic
         .replace(/\*([^\*]+)\*/g, '<em>$1</em>')
-        .replace(/_([^_]+)_/g, '<em>$1</em>')
-        // Headings
-        .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
-        .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
-        .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
-        // Lists
-        .replace(/^\- (.*?)$/gm, '<li>$1</li>')
-        // Paragraphs
-        .split('\n').map(line => {
-            if (line.trim() === '') return '';
-            if (line.trim().startsWith('<')) return line;
-            return `<p>${line}</p>`;
-        }).join('')
-        // Remove extra <p> tags
-        .replace(/<p><h[1-3]/g, '<h')
-        .replace(/<\/h[1-3]><\/p>/g, '</h>')
-        .replace(/<p><li>/g, '<li>')
-        .replace(/<\/li><\/p>/g, '</li>')
-        .replace(/<p><pre>/g, '<pre>')
-        .replace(/<\/pre><\/p>/g, '</pre>');
+        .replace(/_([^_]+)_/g, '<em>$1</em>');
+
+    // —— Step 6: Restore protected blocks (code blocks, inline code) ——
+    html = html.replace(/%%BLOCK_(\d+)%%/g, (_, i) => blocks[parseInt(i)] || '');
 
     return html;
 }
@@ -377,15 +488,29 @@ async function loadSessions() {
                     sessionEl.classList.add('active');
                 }
 
+                const canDelete = !session.is_legacy;
                 sessionEl.innerHTML = `
-                    <div class="session-name">${escapeHtml(session.name)}</div>
-                    <div class="session-meta">
-                        ${session.message_count} messages • Updated ${session.updated_at}
-                        ${session.is_legacy ? '<span style="margin-left: 8px;">(legacy)</span>' : ''}
+                    <div class="session-info-wrap">
+                        <div class="session-name">${escapeHtml(session.name)}</div>
+                        <div class="session-meta">
+                            ${session.message_count} messages • Updated ${session.updated_at}
+                            ${session.is_legacy ? '<span style="margin-left: 8px;">(legacy)</span>' : ''}
+                        </div>
                     </div>
+                    ${canDelete ? `<button class="session-delete" data-path="${escapeHtml(session.file_path)}" title="Delete session"><i class="fas fa-trash"></i></button>` : ''}
                 `;
 
-                sessionEl.addEventListener('click', () => switchSession(session.file_path));
+                sessionEl.addEventListener('click', (e) => {
+                    if (e.target.closest('.session-delete')) return;
+                    switchSession(session.file_path);
+                });
+                const delBtn = sessionEl.querySelector('.session-delete');
+                if (delBtn) {
+                    delBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        deleteSession(session.file_path);
+                    });
+                }
                 sessionsList.appendChild(sessionEl);
             });
         }
@@ -408,14 +533,9 @@ async function switchSession(filePath) {
             currentSessionEl.textContent = currentSessionLabel;
             messageCountEl.textContent = data.message_count;
             
-            // Clear chat and reload
-            chatContainer.innerHTML = '<div class="welcome-message"><div class="welcome-box"><h3>👋 Welcome</h3><p>Session switched. Ask a question to begin.</p></div></div>';
-            
             sessionsModal.classList.add('hidden');
-            showToast('✅ Session switched', 'success');
-            
-            // Reload page to refresh conversation
-            setTimeout(() => location.reload(), 500);
+            showToast('✅ 会话已切换', 'success');
+            await loadChatHistory();
         }
     } catch (error) {
         console.error('Error switching session:', error);
@@ -442,15 +562,42 @@ async function createNewSession() {
             currentSessionEl.textContent = currentSessionLabel;
             newSessionName.value = '';
             
-            showToast('✅ New session created', 'success');
+            showToast('✅ 新会话已创建', 'success');
             await loadSessions();
-            
-            // Clear chat
-            chatContainer.innerHTML = '<div class="welcome-message"><div class="welcome-box"><h3>👋 New Session</h3><p>Ask your first question!</p></div></div>';
+            await loadChatHistory();
         }
     } catch (error) {
         console.error('Error creating session:', error);
         showToast('Error creating session', 'error');
+    }
+}
+
+// ============================================================================
+// Session Delete
+// ============================================================================
+
+async function deleteSession(filePath) {
+    if (!confirm('⚠️ Delete this session? All messages will be lost. Cancel to keep it.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(filePath)}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('✅ 会话已删除', 'success');
+            await loadSessions();
+            await updateStatus();
+            await loadChatHistory();
+        } else {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting session:', error);
+        showToast('Error deleting session', 'error');
     }
 }
 
@@ -510,14 +657,147 @@ async function clearConversation() {
         const data = await response.json();
 
         if (data.success) {
-            chatContainer.innerHTML = '<div class="welcome-message"><div class="welcome-box"><h3>👋 Fresh Start</h3><p>Conversation cleared. Ask your first question!</p></div></div>';
             messageCountEl.textContent = '0';
-            showToast('✅ Conversation cleared', 'success');
+            showToast('✅ 对话已清除', 'success');
+            await loadChatHistory();
         }
     } catch (error) {
         console.error('Error clearing history:', error);
         showToast('Error clearing history', 'error');
     }
+}
+
+// ============================================================================
+// Knowledge (File) Management
+// ============================================================================
+
+async function loadKnowledge() {
+    try {
+        const response = await fetch('/api/knowledge');
+        const data = await response.json();
+
+        if (!data.success) {
+            knowledgeList.innerHTML = '<p class="knowledge-empty">Error loading files</p>';
+            return;
+        }
+
+        if (data.files.length === 0) {
+            knowledgeList.innerHTML = '<p class="knowledge-empty">No lecture files</p>';
+            return;
+        }
+
+        knowledgeList.innerHTML = '';
+        data.files.forEach(file => {
+            const item = document.createElement('div');
+            item.className = 'knowledge-item';
+            const icon = file.indexed ? '🟢' : '⏳';
+            const sizeKB = (file.size / 1024).toFixed(1);
+            item.innerHTML = `
+                <div class="knowledge-info">
+                    <span class="knowledge-icon">${icon}</span>
+                    <span class="knowledge-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
+                    <span class="knowledge-size">${sizeKB} KB</span>
+                </div>
+                <button class="knowledge-delete" data-filename="${escapeHtml(file.name)}" title="Delete">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            item.querySelector('.knowledge-delete').addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteKnowledgeFile(file.name);
+            });
+            knowledgeList.appendChild(item);
+        });
+    } catch (error) {
+        console.error('Error loading knowledge:', error);
+        knowledgeList.innerHTML = '<p class="knowledge-empty">Error loading files</p>';
+    }
+}
+
+async function handleFileUpload(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    let hasValid = false;
+    for (const f of files) {
+        const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+        if (ext === '.pdf' || ext === '.pptx') {
+            formData.append('file', f);
+            hasValid = true;
+        } else {
+            showToast(`Skipped ${f.name}: only .pdf and .pptx allowed`, 'warning');
+        }
+    }
+
+    if (!hasValid) {
+        showToast('No valid files selected', 'warning');
+        fileInput.value = '';
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/knowledge/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            await loadKnowledge();
+        } else {
+            showToast('Upload error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        showToast('Upload failed', 'error');
+    }
+
+    fileInput.value = '';
+}
+
+async function deleteKnowledgeFile(filename) {
+    if (!confirm(`Delete "${filename}"? This will remove it from the vector store as well.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/knowledge/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            await loadKnowledge();
+        } else {
+            showToast('Delete error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting file:', error);
+        showToast('Delete failed', 'error');
+    }
+}
+
+async function reindexKnowledge() {
+    btnReindex.disabled = true;
+    btnReindex.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Indexing...';
+
+    try {
+        const response = await fetch('/api/knowledge/reindex', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            showToast('Reindexing complete', 'success');
+            await loadKnowledge();
+        } else {
+            showToast('Reindex error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error reindexing:', error);
+        showToast('Reindex failed', 'error');
+    }
+
+    btnReindex.disabled = false;
+    btnReindex.innerHTML = '<i class="fas fa-sync"></i> Reindex';
 }
 
 // ============================================================================
@@ -587,6 +867,60 @@ async function updateStatus() {
 async function loadInitialData() {
     await updateStatus();
     await loadCacheStats();
+    await loadKnowledge();
+    await loadChatHistory();
+}
+
+async function loadChatHistory() {
+    try {
+        const response = await fetch('/api/history');
+        const data = await response.json();
+
+        // Clear chat container
+        chatContainer.innerHTML = '';
+
+        if (!data.success || data.history.length === 0) {
+            // Show welcome message when no history
+            chatContainer.innerHTML = `
+                <div class="welcome-message">
+                    <div class="welcome-box">
+                        <h3>👋 欢迎使用 LectureCrewLLM</h3>
+                        <p>提出关于讲座的问题，AI 将结合网络搜索为你解答。</p>
+                        <div class="features">
+                            <div class="feature-item">
+                                <i class="fas fa-database"></i>
+                                <span>RAG 增强分析</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-globe"></i>
+                                <span>网络搜索整合</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-bolt"></i>
+                                <span>智能缓存</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-floppy-disk"></i>
+                                <span>多会话支持</span>
+                            </div>
+                        </div>
+                        <p class="hint-text">💡 试试提问："什么是 Transformer 架构？"</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Render each message in history
+        data.history.forEach(msg => {
+            addMessageToChat(msg.role, msg.content);
+        });
+
+        // Scroll to bottom
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    } catch (error) {
+        console.error('Error loading chat history:', error);
+    }
 }
 
 function showLoadingOverlay(show) {
