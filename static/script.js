@@ -33,7 +33,6 @@ const fileInput = document.getElementById('fileInput');
 
 // Buttons
 const btnSessions = document.getElementById('btnSessions');
-const btnShowHistory = document.getElementById('btnShowHistory');
 const btnClearHistory = document.getElementById('btnClearHistory');
 const btnClearCache = document.getElementById('btnClearCache');
 const btnCreateSession = document.getElementById('btnCreateSession');
@@ -68,7 +67,6 @@ function setupEventListeners() {
     btnCreateSession.addEventListener('click', createNewSession);
 
     // History
-    btnShowHistory.addEventListener('click', openHistoryModal);
     btnClearHistory.addEventListener('click', clearConversation);
 
     // Knowledge management
