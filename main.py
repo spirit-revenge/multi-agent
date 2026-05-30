@@ -31,6 +31,18 @@ def _build_llm():
 
 deepseek_llm = _build_llm()
 
+# Lightweight LLM for routing (cheap, fast)
+def _build_router_llm():
+    return LLM(
+        model="deepseek/deepseek-chat",
+        api_key=deepseek_api_key,
+        base_url="https://api.deepseek.com",
+        temperature=0.1,
+        max_tokens=100
+    )
+
+router_llm = _build_router_llm()
+
 # Initialize persistent vector store
 vector_store = LectureVectorStore(persist_directory="chroma_db", collection_name="lectures_chinese")
 
@@ -38,12 +50,24 @@ vector_store = LectureVectorStore(persist_directory="chroma_db", collection_name
 # --- 2. Define Agents ---
 
 def content_analyst_agent():
-    """Agent that synthesizes lecture content with web research into a polished English answer."""
+    """Agent that synthesizes lecture content with web research into a polished Chinese answer."""
     return Agent(
-        role="Lecture Analyst",
-        goal="Analyze lecture excerpts and web research to produce clear, well-structured answers in English Markdown.",
-        backstory="You are an expert tutor who explains complex ideas simply. You combine Chinese lecture material with English web research to create comprehensive explanations.",
+        role="讲座分析师",
+        goal="分析讲座内容与网络搜索结果，生成结构清晰、易懂的中文 Markdown 回答。",
+        backstory="你是一位经验丰富的讲师，善于用简单的方式解释复杂概念。你擅长将中文讲座资料和网络信息整合为全面的中文解释。",
         llm=deepseek_llm,
+        verbose=False,
+        allow_delegation=False,
+    )
+
+
+def router_agent():
+    """Agent that classifies user intent into: lecture / web / hybrid / unknown."""
+    return Agent(
+        role="意图路由器",
+        goal="判断用户问题是关于讲座内容、实时信息、还是两者都需要。",
+        backstory="你擅长快速识别用户意图，只输出一个词：lecture（仅讲座）、web（仅网络）、hybrid（两者都需要）、unknown（不确定）。",
+        llm=router_llm,
         verbose=False,
         allow_delegation=False,
     )
@@ -52,9 +76,9 @@ def content_analyst_agent():
 def search_agent():
     """Agent that searches the web for supplementary information."""
     return Agent(
-        role="Internet Researcher",
-        goal="Search the web for definitions, examples, and recent developments related to lecture topics.",
-        backstory="You are a fast and accurate web researcher who finds the most relevant online resources to enrich understanding.",
+        role="网络研究员",
+        goal="搜索与讲座主题相关的定义、示例和最新进展。",
+        backstory="你是一位快速准确的网络研究员，擅长找到最相关的在线资源来丰富理解。",
         tools=[GoogleProgrammableSearchTool()],
         llm=deepseek_llm,
         verbose=False,
@@ -62,35 +86,33 @@ def search_agent():
     )
 
 
-def manager_agent():
-    """Orchestrator that delegates tasks to the appropriate agents."""
-    return Agent(
-        role="Educational Manager",
-        goal="Coordinate web search and lecture analysis to produce the best answer for the user.",
-        backstory="You supervise the entire process, delegating tasks and combining results into a coherent response.",
-        llm=deepseek_llm,
-        allow_delegation=True,
-        verbose=False,
-    )
+
 
 
 # --- 3. Define Tasks ---
 
-def create_tasks(folder_path="knowledge", user_question=None, conversation_manager=None):
+def create_tasks(folder_path="knowledge", user_question=None, conversation_manager=None, task_id=None):
     """
     Build the task list for the crew.
     RAG retrieval runs here (before crew kickoff) and its results are injected
-    directly into the Analyst's task as context. The Manager delegates:
+    directly into the Analyst's task as context.
+    In sequential mode:
       1. Internet Researcher → web search
       2. Lecture Analyst   → final answer synthesis
     """
+    if task_id:
+        status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
+
     try:
         rag_context = vector_store.get_context_for_query(user_question, k=5)
     except Exception as e:
         logger.warning("RAG retrieval failed: %s. Falling back to file reader.", e)
         rag_context = ""
     if not rag_context:
-        rag_context = "No relevant lecture excerpts found in the vector store."
+        rag_context = "向量库中未找到相关的讲座内容。"
+
+    if task_id:
+        status_tracker.update(task_id, "rag", f"已检索到相关知识（{len(rag_context)} 字符）")
 
     conversation_context = ""
     if conversation_manager and len(conversation_manager) > 0:
@@ -98,36 +120,36 @@ def create_tasks(folder_path="knowledge", user_question=None, conversation_manag
 
     # Task 1: Internet search
     task_search = Task(
-        description=f"""Search the web for recent information, definitions, and examples related to: {user_question}
+        description=f"""搜索与以下问题相关的网页信息、定义和示例：{user_question}
 
 {conversation_context}
 
-Return findings in English with source URLs. If the user is asking a follow-up question, prioritize updated or more specific information relevant to the conversation context.""",
-        expected_output="Bullet list of online findings with URLs.",
+以中文返回结果并附上来源 URL。如果是追问，优先查找更新或更具体的信息。""",
+        expected_output="带来源 URL 的搜索要点列表。",
         agent=search_agent(),
     )
 
     # Task 2: Final answer synthesis
     task_answer = Task(
-        description=f"""User question: {user_question}
+        description=f"""用户问题：{user_question}
 
 {conversation_context}
 
---- Lecture excerpts (RAG-retrieved, in Chinese) ---
+--- 讲座内容（RAG 检索）---
 {rag_context}
 
---- Internet research ---
+--- 网络搜索结果 ---
 {{{{task_search.output}}}}
 
-Instructions:
-1. Read the Chinese lecture excerpts carefully - they are your primary source.
-2. If web research results contain errors (e.g. "Error:" prefix), ignore them and rely solely on the lecture excerpts.
-3. Combine lecture knowledge with any valid web research results.
-4. Produce a final answer in **English Markdown**.
-5. Organize with headings, bullet points, and cite sources (file names for lectures, URLs for web).
-6. If the lectures contain specific terms or formulas, explain them in English.
-7. If this is a follow-up question, explicitly address how it relates to the previous conversation.""",
-        expected_output="A well-structured English Markdown document with citations.",
+说明：
+1. 仔细阅读中文讲座内容——这是你的主要信息来源。
+2. 如果搜索结果包含错误（如 "Error:" 开头），忽略它们，仅使用讲座内容。
+3. 将讲座知识与有效的搜索结果结合。
+4. 以 **中文 Markdown** 格式输出最终答案。
+5. 使用标题、列表组织内容，并标注来源（讲座来源文件名、网络 URL）。
+6. 如果讲座内容中包含图片，可以用 Markdown 图片语法引用：\n    ![描述](/images/文件名)
+7. 如果是追问，明确说明与之前对话的关联。""",
+        expected_output="带有引用的结构清晰的中文 Markdown 文档。",
         agent=content_analyst_agent(),
         context=[task_search],
     )
@@ -135,41 +157,282 @@ Instructions:
     return [task_search, task_answer]
 
 
+# --- 3.5 Guard Agent (LLM-based relevance gate) ---
+
+def guard_agent():
+    """Guard Agent: checks if the user's question is genuinely related to lecture content.
+
+    Unlike a simple keyword-matcher, the Guard Agent distinguishes between:
+    - Genuine relevance: question and content share the same conceptual domain
+    - Keyword overlap: similar words but different meaning
+      (e.g. "天气温度" ≠ "模型温度缩放", "吃饭" ≠ "Tokenizer 分词")
+
+    Returns RELEVANT only when the lecture content can substantively help answer.
+    """
+    return Agent(
+        role="知识边界守卫",
+        goal=(
+            "严格判断检索到的讲座内容是否与用户问题属于同一知识领域。"
+            "区分真正的语义相关和表面的关键词重叠。"
+        ),
+        backstory=(
+            "你是一名严谨的学术守门人。你的职责是防止系统用不相关的讲座内容来"
+            "回答与课程无关的问题。你擅长识别：同一个词在不同语境下的含义差异"
+            "（如物理温度 vs 模型温度）、通用问题 vs 学术问题、以及讲座知识"
+            "的边界。当内容不相关时，你毫不犹豫地输出 IRRELEVANT。"
+        ),
+        llm=router_llm,
+        verbose=False,
+        allow_delegation=False,
+    )
+
+
+def grounding_check(user_question: str, rag_context: str) -> str:
+    """Use Guard Agent to verify RAG context relevance.
+
+    The guard checks for genuine semantic relevance, not just keyword overlap.
+    For example, asking about weather ("今天天气") should NOT match lecture
+    content about "temperature scaling" even though both mention "温度".
+
+    Returns:
+        - Filtered context string (if RELEVANT)
+        - "IRRELEVANT" (if nothing is relevant)
+        - "" (if no context)
+    """
+    if not rag_context:
+        return ""
+
+    import re
+    chunks = re.split(r'\n\[\d+\]', rag_context)
+    content_chunks = [c.strip() for c in chunks if c.strip() and "以下是与问题" not in c]
+
+    if not content_chunks:
+        return ""
+
+    sample = "\n\n".join(content_chunks[:3])
+    if len(sample) > 2000:
+        sample = sample[:2000] + "..."
+
+    guard = guard_agent()
+    task = Task(
+        description=f"""你是一名知识边界守卫。请判断以下讲座内容是否与用户问题属于同一知识领域、能否实质性地帮助回答该问题。
+
+⚠️ 关键原则：区分"语义相关"和"关键词重叠"——
+- "今天天气怎么样" vs 讲座中"模型温度缩放（temperature scaling）" → IRRELEVANT（虽然都有"温度"，但一个是气候，一个是 ML 技术）
+- "什么是 Transformer" vs 讲座中"Transformer 架构详解" → RELEVANT
+- "推荐一家餐厅" vs 讲座中"推荐系统的协同过滤" → IRRELEVANT（虽然都有"推荐"，但语境完全不同）
+
+用户问题：{user_question}
+
+检索到的讲座内容：
+{sample}
+
+请判断：这些讲座内容能实质性地帮助回答用户问题吗？
+只输出一个词：RELEVANT 或 IRRELEVANT""",
+        expected_output="RELEVANT 或 IRRELEVANT",
+        agent=guard,
+    )
+    crew = Crew(agents=[guard], tasks=[task], process=Process.sequential, verbose=False)
+    result = str(crew.kickoff()).strip().upper()
+
+    logger.info("Guard check: %s → %s", user_question[:40], result)
+
+    if "IRRELEVANT" in result:
+        return "IRRELEVANT"
+
+    return rag_context
+
+
 # --- 4. Run Crew ---
 
 def run_crew(folder_path="knowledge", user_question=None, conversation_manager=None,
-             task_id=None):
+             task_id=None, use_web_search=True):
     """
-    Assemble and run the crew. Accepts an optional task_id for SSE progress reporting.
+    Run agents with intent routing + grounding check pipeline.
+    Steps:
+      1. Router: classify intent (lecture / web / hybrid / unknown)
+      2. RAG retrieval + Grounding Check (filter low-quality results)
+      3. Execute appropriate pipeline based on intent + web search setting
     """
-    searcher = search_agent()
     analyst = content_analyst_agent()
-    manager = manager_agent()
 
-    tasks = create_tasks(
-        folder_path=folder_path,
-        user_question=user_question,
-        conversation_manager=conversation_manager,
+    # ---- Step 1: Router ----
+    if task_id:
+        status_tracker.update(task_id, "routing", "正在分析问题意图...")
+
+    router = router_agent()
+    route_task = Task(
+        description=f"""判断以下用户问题属于哪个类别，只输出一个词：
+
+类别说明：
+- lecture：关于讲座内容、AI/技术概念、课程知识的问题
+- web：关于实时信息、新闻、天气、最新事件的问题
+- hybrid：需要同时参考讲座知识和最新信息的问题
+- unknown：无法确定的问题
+
+用户问题：{user_question}
+
+输出（只输出一个类别词）：""",
+        expected_output="lecture 或 web 或 hybrid 或 unknown",
+        agent=router,
+    )
+    route_crew = Crew(agents=[router], tasks=[route_task], process=Process.sequential, verbose=False)
+    intent = str(route_crew.kickoff()).strip().lower()
+    logger.info("Router intent: %s → %s", user_question[:40], intent)
+
+    # ---- Step 2: RAG Retrieval (lecture / hybrid routes) ----
+    rag_context = ""
+    if intent in ("lecture", "hybrid", "unknown"):
+        if task_id:
+            status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
+        try:
+            raw_rag = vector_store.get_context_for_query(user_question, k=5)
+        except Exception as e:
+            logger.warning("RAG retrieval failed: %s", e)
+            raw_rag = ""
+
+        # Grounding Check: verify relevance via LLM
+        if raw_rag:
+            rag_result = grounding_check(user_question, raw_rag)
+            if rag_result == "IRRELEVANT":
+                rag_context = ""  # clear context, will trigger "cannot answer" downstream
+            else:
+                rag_context = rag_result
+        if not rag_context:
+            rag_context = ""
+
+    # ---- Step 3: Route execution ----
+
+    # Case A: intent is "web" (no RAG needed)
+    if intent == "web" and use_web_search:
+        if task_id:
+            status_tracker.update(task_id, "searching", "正在搜索网络资源...")
+
+        searcher = search_agent()
+        task_search = Task(
+            description=f"""搜索与以下问题相关的网页信息：{user_question}
+
+以中文返回结果并附上来源 URL。""",
+            expected_output="带来源 URL 的搜索要点列表。",
+            agent=searcher,
+        )
+        task_answer = Task(
+            description=f"""用户问题：{user_question}
+
+--- 网络搜索结果 ---
+{{{{task_search.output}}}}
+
+说明：
+1. 根据网络搜索结果回答用户问题。
+2. 以 **中文 Markdown** 格式输出。
+3. 标注信息来源 URL。""",
+            expected_output="中文 Markdown 回答。",
+            agent=analyst,
+            context=[task_search],
+        )
+
+        if task_id:
+            status_tracker.update(task_id, "generating", "正在生成答案...")
+
+        crew = Crew(agents=[searcher, analyst], tasks=[task_search, task_answer],
+                    process=Process.sequential, verbose=False)
+        result = crew.kickoff()
+        if task_id:
+            status_tracker.update(task_id, "complete", "答案已生成！")
+        return str(result)
+
+    # Case B: intent is "lecture" or web search is OFF
+    if intent == "lecture" or not use_web_search:
+        if not rag_context:
+            if task_id:
+                status_tracker.update(task_id, "complete", "无法回答")
+            return None  # signal: cannot answer
+
+        if task_id:
+            status_tracker.update(task_id, "generating", "正在根据讲座内容生成答案...")
+
+        conv_ctx = conversation_manager.get_full_context_for_agent() if conversation_manager and len(conversation_manager) > 0 else ""
+
+        task_answer = Task(
+            description=f"""用户问题：{user_question}
+
+{conv_ctx}
+
+--- 讲座内容（RAG 检索）---
+{rag_context}
+
+说明：
+1. 仔细阅读中文讲座内容回答用户问题。
+2. 以 **中文 Markdown** 格式输出。
+3. 如果讲座内容不足以回答问题，请如实说明。
+4. 标注信息来源（文件名）。""",
+            expected_output="中文 Markdown 回答。",
+            agent=analyst,
+        )
+
+        crew = Crew(agents=[analyst], tasks=[task_answer],
+                    process=Process.sequential, verbose=False)
+        result = crew.kickoff()
+        if task_id:
+            status_tracker.update(task_id, "complete", "答案已生成！")
+        return str(result)
+
+    # Case C: hybrid or unknown + web search ON → RAG + Web Search
+    searcher = search_agent()
+    conv_ctx = conversation_manager.get_full_context_for_agent() if conversation_manager and len(conversation_manager) > 0 else ""
+
+    if task_id:
+        status_tracker.update(task_id, "searching", "正在搜索网络资源...")
+
+    task_search = Task(
+        description=f"""搜索与以下问题相关的网页信息：{user_question}
+
+{conv_ctx}
+
+以中文返回结果并附上来源 URL。""",
+        expected_output="带来源 URL 的搜索要点列表。",
+        agent=searcher,
+    )
+
+    rag_display = rag_context if rag_context else "向量库中未找到相关的讲座内容。"
+    task_answer = Task(
+        description=f"""用户问题：{user_question}
+
+{conv_ctx}
+
+--- 讲座内容（RAG 检索）---
+{rag_display}
+
+--- 网络搜索结果 ---
+{{{{task_search.output}}}}
+
+说明：
+1. 仔细阅读中文讲座内容。
+2. 如果搜索结果包含错误，忽略它们。
+3. 以 **中文 Markdown** 格式输出最终答案。
+4. 标注来源（讲座文件名、网络 URL）。""",
+        expected_output="带有引用的中文 Markdown 文档。",
+        agent=analyst,
+        context=[task_search],
     )
 
     if task_id:
-        status_tracker.update(task_id, "starting", "Searching the web for relevant resources...")
+        status_tracker.update(task_id, "searching", "正在搜索网络资源...")
 
     crew = Crew(
         agents=[searcher, analyst],
-        tasks=tasks,
-        process=Process.hierarchical,
-        manager_agent=manager,
+        tasks=[task_search, task_answer],
+        process=Process.sequential,
         verbose=False,
     )
 
     if task_id:
-        status_tracker.update(task_id, "generating", "Synthesizing answer from lectures and web research...")
+        status_tracker.update(task_id, "generating", "正在综合生成答案...")
 
     result = crew.kickoff()
 
     if task_id:
-        status_tracker.update(task_id, "complete", "Answer ready!")
+        status_tracker.update(task_id, "complete", "答案已生成！")
 
     return str(result)
 
