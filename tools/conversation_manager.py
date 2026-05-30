@@ -102,6 +102,31 @@ class ConversationManager:
         
         return context
     
+    def get_summary_context(self) -> str:
+        """返回精简的对话历史摘要（≤300 token），替代完整历史。
+
+        只保留最近一轮的问答摘要，避免长对话下 Token 膨胀。
+        """
+        if not self.history:
+            return ""
+
+        last_user = None
+        last_assistant = None
+        for msg in reversed(self.history):
+            if msg.role == "user" and last_user is None:
+                last_user = msg.content[:150]
+            elif msg.role == "assistant" and last_assistant is None:
+                last_assistant = msg.content[:200]
+
+        parts = []
+        if last_user:
+            parts.append(f"用户上次问：{last_user}")
+        if last_assistant:
+            parts.append(f"上次回答：{last_assistant}")
+        if not parts:
+            return ""
+        return "【历史摘要】" + " | ".join(parts)
+
     def clear_session(self):
         """清除对话历史"""
         self.history = []

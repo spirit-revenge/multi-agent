@@ -12,6 +12,7 @@ Supports:
 import hashlib
 import json
 import logging
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,266 @@ from tools.document_processor import process_document
 from tools.image_captioner import describe_images_batch
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Query Rewrite — expand abbreviations for better embedding matching
+# ---------------------------------------------------------------------------
+
+QUERY_REWRITE_MAP = {
+    # English acronyms → full English + Chinese
+    "rag": "Retrieval Augmented Generation 检索增强生成",
+    "llm": "Large Language Model 大语言模型",
+    "nlp": "Natural Language Processing 自然语言处理",
+    "gpt": "GPT Generative Pre-trained Transformer 生成式预训练",
+    "bert": "BERT Bidirectional Encoder 双向编码器",
+    "cnn": "CNN Convolutional Neural Network 卷积神经网络",
+    "rnn": "RNN Recurrent Neural Network 循环神经网络",
+    "lstm": "LSTM Long Short Term Memory 长短期记忆",
+    "transformer": "Transformer 注意力机制 自注意力",
+    "attention": "Attention 注意力机制 权重",
+    "embedding": "Embedding 嵌入 向量化",
+    "tokenizer": "Tokenizer 分词器 令牌化",
+    "fine.?tune": "fine tune 微调 参数调整",
+    "prompt": "Prompt 提示词 指令",
+    "agent": "Agent 智能体 代理",
+    "multi.?modal": "multimodal 多模态 多模式",
+    "few.?shot": "few shot 少样本 小样本",
+    "zero.?shot": "zero shot 零样本",
+}
+
+
+def rewrite_query(query: str) -> str:
+    """Expand abbreviations and add Chinese equivalents for better embedding matching.
+
+    Uses rule-based lookup only — no LLM call.
+    Handles Chinese context where \b boundaries don't apply.
+    Example: "介绍一下rag" → "介绍一下rag (Retrieval Augmented Generation 检索增强生成)"
+    """
+    lower = query.lower()
+    for abbrev, expansion in QUERY_REWRITE_MAP.items():
+        if abbrev in lower:
+            # Check if the full terms (excluding the abbreviation itself) are already present
+            full_terms = [t for t in expansion.lower().split()[:4] if t != abbrev]
+            if not any(term in lower for term in full_terms):
+                query = query + f" ({expansion})"
+                break
+    return query
+
+
+# ---------------------------------------------------------------------------
+# Retrieval Cache — avoid re-querying ChromaDB for similar questions
+# ---------------------------------------------------------------------------
+
+class RetrievalCache:
+    """Simple file-based cache for RAG retrieval results.
+
+    Normalizes queries (same scheme as AnswerCache) so rephrasings hit.
+    """
+
+    _CACHE_FILE = "cache/retrieval_cache.json"
+    _MAX_ENTRIES = 100
+
+    def __init__(self):
+        import re
+        self._re = re
+        self._cache: dict[str, list] = {}
+        self._load()
+
+    def _normalize(self, query: str) -> str:
+        import hashlib
+        q = query.lower().strip()
+        q = self._re.sub(r"[^\w\s]", " ", q)
+        q = self._re.sub(r"\s+", " ", q).strip()
+        tokens = sorted(q.split())
+        normalized = " ".join(tokens) if tokens else q
+        return hashlib.md5(normalized.encode()).hexdigest()
+
+    def _load(self):
+        try:
+            path = Path(self._CACHE_FILE)
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                self._cache = data.get("entries", {})
+        except Exception:
+            self._cache = {}
+
+    def _save(self):
+        try:
+            path = Path(self._CACHE_FILE)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Trim to max size
+            if len(self._cache) > self._MAX_ENTRIES:
+                keys = list(self._cache.keys())[-self._MAX_ENTRIES:]
+                self._cache = {k: self._cache[k] for k in keys}
+            path.write_text(
+                json.dumps({"entries": self._cache}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def get(self, query: str) -> list | None:
+        key = self._normalize(query)
+        return self._cache.get(key)
+
+    def set(self, query: str, entries: list):
+        key = self._normalize(query)
+        # Only store serializable data (strip numpy arrays)
+        clean = []
+        for e in entries:
+            clean.append({
+                "content": e["content"],
+                "source": e["source"],
+                "type": e["type"],
+                "similarity": float(e.get("similarity", 0)),
+            })
+        self._cache[key] = clean
+        self._save()
+
+    def clear(self):
+        self._cache = {}
+        self._save()
+
+
+retrieval_cache = RetrievalCache()
+
+
+# ---------------------------------------------------------------------------
+# BM25 — simple implementation, no external dependencies
+# ---------------------------------------------------------------------------
+
+class _BM25Index:
+    """Lightweight BM25 Okapi index for hybrid retrieval.
+
+    Built from ChromaDB collection contents on demand.
+    """
+
+    def __init__(self):
+        self._corpus: list[str] = []
+        self._avgdl: float = 0.0
+        self._idf: dict[str, float] = {}
+        self._doc_lens: list[int] = []
+        self._k1 = 1.5
+        self._b = 0.75
+        self._dirty = True
+
+    def _tokenize(self, text: str) -> list[str]:
+        import re
+        # Split on whitespace and common Chinese punctuation
+        tokens = re.findall(r"[a-zA-Z0-9_]+|[^\s\w]", text.lower())
+        # Filter out single punctuation characters that aren't useful for matching
+        return [t for t in tokens if len(t) > 1 or t.isalnum()]
+
+    def build(self, documents: list[str]):
+        """Build/rebuild the index from a list of document strings."""
+        self._corpus = documents
+        self._doc_lens = [len(self._tokenize(d)) for d in documents]
+        n = len(documents)
+        self._avgdl = sum(self._doc_lens) / n if n > 0 else 1.0
+
+        # Compute IDF
+        import math
+        doc_freq: dict[str, int] = {}
+        for doc in documents:
+            seen = set(self._tokenize(doc))
+            for token in seen:
+                doc_freq[token] = doc_freq.get(token, 0) + 1
+
+        self._idf = {
+            token: math.log(1 + (n - freq + 0.5) / (freq + 0.5))
+            for token, freq in doc_freq.items()
+        }
+        self._dirty = False
+
+    def score(self, query: str, doc_idx: int) -> float:
+        """Compute BM25 score for a single query-document pair."""
+        if self._dirty or doc_idx >= len(self._corpus):
+            return 0.0
+        query_tokens = self._tokenize(query)
+        doc_tokens = self._tokenize(self._corpus[doc_idx])
+        doc_len = self._doc_lens[doc_idx]
+
+        score = 0.0
+        for token in query_tokens:
+            if token not in self._idf:
+                continue
+            tf = doc_tokens.count(token)
+            if tf == 0:
+                continue
+            idf = self._idf[token]
+            numerator = tf * (self._k1 + 1)
+            denominator = tf + self._k1 * (1 - self._b + self._b * doc_len / self._avgdl)
+            score += idf * numerator / denominator
+        return score
+
+    def scores(self, query: str, indices: list[int] | None = None) -> dict[int, float]:
+        """Score multiple documents at once.
+
+        Returns {doc_idx: bm25_score} for the given indices (or all if None).
+        """
+        if self._dirty:
+            return {}
+        check = indices if indices is not None else range(len(self._corpus))
+        return {i: self.score(query, i) for i in check if i < len(self._corpus)}
+
+
+_bm25 = _BM25Index()
+
+
+# ---------------------------------------------------------------------------
+# CrossEncoder Reranker — optional, loaded lazily
+# ---------------------------------------------------------------------------
+
+class _Reranker:
+    """Optional CrossEncoder reranker for top-N re-scoring.
+
+    Model is loaded on first use only. Falls back silently if unavailable.
+    """
+
+    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+        self._model_name = model_name
+        self._model = None
+        self._available = True
+
+    def _load(self):
+        if self._model is not None:
+            return
+        try:
+            from sentence_transformers import CrossEncoder
+            self._model = CrossEncoder(self._model_name)
+            logger.info("Reranker loaded: %s", self._model_name)
+        except Exception as e:
+            logger.warning("Reranker unavailable (falling back to hybrid only): %s", e)
+            self._available = False
+            self._model = None
+
+    def rerank(self, query: str, candidates: list[dict], top_k: int = 3) -> list[dict]:
+        """Re-score candidates using cross-encoder, return top-k.
+
+        Falls back to input ordering if model is unavailable.
+        """
+        if not candidates or not self._available:
+            return candidates[:top_k]
+
+        self._load()
+        if self._model is None:
+            return candidates[:top_k]
+
+        try:
+            pairs = [(query, c.get("content", "")) for c in candidates]
+            scores = self._model.predict(pairs)
+            for i, score in enumerate(scores):
+                if i < len(candidates):
+                    # Blend: 60% cross-encoder + 40% original hybrid score
+                    candidates[i]["similarity"] = 0.6 * float(score) + 0.4 * candidates[i].get("similarity", 0)
+            candidates.sort(key=lambda e: e["similarity"], reverse=True)
+            return candidates[:top_k]
+        except Exception as e:
+            logger.warning("Reranker inference failed: %s", e)
+            return candidates[:top_k]
+
+
+_reranker = _Reranker()
 
 # ============================================================================
 # Embedding function (reused from original; uses sentence-transformers)
@@ -330,13 +591,28 @@ class LectureVectorStore:
     # Retrieval
     # ------------------------------------------------------------------
 
+    def _ensure_bm25(self):
+        """Lazily build BM25 index from all ChromaDB documents."""
+        if not _bm25._dirty:
+            return
+        try:
+            all_data = self.collection.get(include=["documents"])
+            docs = all_data.get("documents", []) or []
+            if docs:
+                _bm25.build(docs)
+                logger.debug("BM25 index built: %d documents", len(docs))
+        except Exception as e:
+            logger.warning("BM25 index build failed: %s", e)
+
     def retrieve(
         self,
         query: str,
         k: int = 5,
         content_type: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve top-k relevant entries.
+        """Retrieve top-k relevant entries with hybrid (embedding + BM25) scoring.
+
+        Applies query rewrite + retrieval cache automatically.
 
         Args:
             query: User question text.
@@ -347,13 +623,31 @@ class LectureVectorStore:
             List of dicts with keys: content, source, type, chunk_index, indexed_at,
             distance, (image_path if type=image).
         """
+        # 1. Check retrieval cache first
+        cached = retrieval_cache.get(query)
+        if cached is not None:
+            logger.debug("Retrieval cache hit: %s", query[:40])
+            return cached
+
+        # 2. Apply query rewrite (expand abbreviations)
+        rewritten = rewrite_query(query)
+        final_query = rewritten if rewritten != query else query
+        if final_query != query:
+            logger.debug("Query rewritten: %s → %s", query[:40], final_query[:60])
+
+        # 3. Build BM25 index lazily
+        self._ensure_bm25()
+
+        # 4. Query ChromaDB — get extra candidates for hybrid reranking
         where = None
         if content_type:
             where = {"type": content_type}
 
+        # Get more candidates so BM25 has room to re-rank
+        hybrid_k = max(k * 4, 12)
         results = self.collection.query(
-            query_texts=[query],
-            n_results=k,
+            query_texts=[final_query],
+            n_results=hybrid_k,
             where=where,
         )
 
@@ -367,7 +661,7 @@ class LectureVectorStore:
         if distances is None:
             distances = [0.0] * len(documents)
 
-        for doc, meta, dist in zip(documents, metadatas, distances):
+        for idx, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances)):
             entry = {
                 "content": doc,
                 "source": Path(meta.get("source", "")).name,
@@ -380,26 +674,63 @@ class LectureVectorStore:
                 entry["image_path"] = meta["image_path"]
             entries.append(entry)
 
+        # 5. Hybrid re-rank: fuse embedding similarity with BM25 scores
+        if len(entries) > k and not _bm25._dirty:
+            bm25_scores = _bm25.scores(final_query, range(len(documents)))
+            # Normalize BM25 scores to 0-1 range
+            bm25_vals = list(bm25_scores.values())
+            bm25_min = min(bm25_vals) if bm25_vals else 0
+            bm25_max = max(bm25_vals) if bm25_vals else 1
+            bm25_range = bm25_max - bm25_min if bm25_max > bm25_min else 1
+
+            for i, entry in enumerate(entries):
+                bm25_norm = (bm25_scores.get(i, 0) - bm25_min) / bm25_range
+                # Fuse: 70% embedding + 30% BM25
+                entry["similarity"] = 0.7 * entry.get("similarity", 0) + 0.3 * bm25_norm
+
+            # Sort by hybrid score and keep top-k
+            entries.sort(key=lambda e: e["similarity"], reverse=True)
+            entries = entries[:k]
+
+        # 6. CrossEncoder Reranker (optional — falls back silently)
+        entries = _reranker.rerank(query, entries, top_k=k)
+
+        # 7. Cache the result
+        retrieval_cache.set(query, entries)
         return entries
 
-    def get_context_for_query(
-        self,
-        query: str,
-        k: int = 5,
-    ) -> str:
-        """Return formatted context string for prompt injection (backward-compatible).
+    @staticmethod
+    def format_chunks_as_context(entries: list) -> str:
+        """Format raw retrieved chunks into a context string for prompt injection.
 
-        Retrieves text + image descriptions + tables, then formats them
-        as a single string the Agent can read.
+        Deduplicates near-identical chunks before formatting.
+        Can be called directly with retrieve() output to avoid re-querying ChromaDB.
         """
-        from urllib.parse import quote
-        entries = self.retrieve(query, k)
         if not entries:
             return ""
 
+        # Dedup: skip chunks that are largely redundant with a higher-similarity neighbor
+        deduped = []
+        for e in entries:
+            content = e.get("content", "")
+            is_dup = False
+            for existing in deduped:
+                existing_content = existing.get("content", "")
+                # Check if one is a prefix/substring of the other (common at chunk boundaries)
+                if content.startswith(existing_content) or existing_content.startswith(content):
+                    is_dup = True
+                    break
+                # Check if first 80 chars are identical
+                if content[:80] == existing_content[:80]:
+                    is_dup = True
+                    break
+            if not is_dup:
+                deduped.append(e)
+
+        from urllib.parse import quote
         context = "以下是与问题相关的讲座内容：\n\n"
         text_idx = 1
-        for entry in entries:
+        for entry in deduped:
             tag = {"text": "📝 文本", "image": "🖼️ 图片", "table": "📊 表格"}.get(
                 entry["type"], "📄 内容"
             )
@@ -410,18 +741,25 @@ class LectureVectorStore:
             )
             context += f"{entry['content']}\n\n"
             if entry.get("image_path"):
-                # Include image reference as Markdown
-                # quote() doesn't encode underscores, but Markdown renderers
-                # treat _ as italic markers → break the URL. Encode _ as %5F.
                 img_filename = Path(entry["image_path"]).name
                 safe_name = quote(img_filename).replace('_', '%5F')
                 context += f"![{entry['content']}](/images/{safe_name})\n\n"
             text_idx += 1
 
-        # Tell the agent to use the actual image references above — do NOT invent new paths
         context += "注意：上述每张图片后面都已附带了正确的 Markdown 引用路径，**直接复制即可**。不要自己编造 /images/ 路径。\n"
-
         return context
+
+    def get_context_for_query(
+        self,
+        query: str,
+        k: int = 5,
+    ) -> str:
+        """Return formatted context string for prompt injection (backward-compatible).
+
+        Delegates to format_chunks_as_context() after retrieval.
+        """
+        entries = self.retrieve(query, k)
+        return self.format_chunks_as_context(entries)
 
     # ------------------------------------------------------------------
     # Deletion

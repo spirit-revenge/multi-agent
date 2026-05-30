@@ -32,7 +32,7 @@ class TavilySearchTool(BaseTool):
             client = TavilyClient(api_key=api_key)
             response = client.search(
                 query=query,
-                search_depth="advanced",
+                search_depth="basic",
                 max_results=5,
                 include_answer=True,
             )

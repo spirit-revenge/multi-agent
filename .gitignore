@@ -20,10 +20,14 @@ images/
 *.sqlite3
 *.db
 chroma_db/
-cache/answer_cache.json
+cache/
 
 # Output files
 output/*.md
+
+# Temp / scratch files
+tests/a.py
+tests/temp_*.py
 
 # Conversation sessions
 conversations/sessions/*.json

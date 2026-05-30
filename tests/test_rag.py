@@ -305,7 +305,16 @@ class _DummyEmbedding:
 class TestLectureVectorStore:
     """Test the vector store with mocked ChromaDB."""
 
+    @staticmethod
+    def _setup_method():
+        """Disable module-level caches/reranker before each test."""
+        from tools.rag_store import retrieval_cache, _reranker
+        retrieval_cache.clear()
+        _reranker._available = False
+
     def _make_store(self):
+        """Create a store with temp directories and a mocked collection."""
+        self._setup_method()
         """Create a store with temp directories and a mocked collection."""
         from tools.rag_store import LectureVectorStore
 
@@ -432,8 +441,14 @@ class TestLectureVectorStore:
         shutil.rmtree(store_dir, ignore_errors=True)
 
     def test_retrieve_filter_by_type(self):
-        from tools.rag_store import LectureVectorStore
+        from tools.rag_store import LectureVectorStore, retrieval_cache, _reranker
+        retrieval_cache.clear()
+        _reranker._available = False  # skip model download in tests
+
         store, store_dir = self._make_store()
+
+        # Mock collection.get() for BM25 initialization (returns no docs)
+        store.collection.get.return_value = {"documents": []}
 
         store.collection.query.return_value = {
             "documents": [["图片描述"]],
@@ -448,10 +463,10 @@ class TestLectureVectorStore:
         assert results[0]["type"] == "image"
         assert results[0]["image_path"] == "images/test.png"
 
-        # Verify query was called with correct filter
+        # Verify query was called with hybrid_k = max(k*4, 12) = 12
         store.collection.query.assert_called_with(
             query_texts=["test image query"],
-            n_results=3,
+            n_results=12,
             where={"type": "image"},
         )
 

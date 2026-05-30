@@ -5,13 +5,10 @@ from pathlib import Path
 from datetime import datetime
 from crewai import Agent, Task, Crew, Process
 from crewai import LLM
-from tools.local_file_tool import ReadLocalLectureFilesTool
 from tools.rag_store import LectureVectorStore
 from tools.conversation_manager import ConversationManager
 from tools.answer_cache import AnswerCache
 from tools.session_manager import ConversationSessionManager, SessionInfo
-from tools.google_search_tool import GoogleProgrammableSearchTool
-from tools.tavily_search_tool import TavilySearchTool
 from tools.status_tracker import status_tracker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -48,6 +45,126 @@ router_llm = _build_router_llm()
 vector_store = LectureVectorStore(persist_directory="chroma_db", collection_name="lectures_chinese")
 
 
+# --- 1.5 Rule-Based Router (fast path, no LLM) ---
+
+WEB_KEYWORDS = [
+    "天气", "新闻", "股价", "股票", "汇率", "地震",
+    "今天", "最新", "刚刚", "当前", "实时",
+    "热搜", "头条", "预报", "预警",
+]
+
+def rule_router(question: str) -> str | None:
+    """Fast keyword-based intent classification. Returns None if unsure."""
+    q = question.lower().strip()
+    for kw in WEB_KEYWORDS:
+        if kw in q:
+            return "web"
+    return None
+
+
+# --- 1.6 Direct Search (no LLM Agent needed) ---
+
+# --- 1.7 Search Cache (1h TTL, avoids redundant Tavily API calls) ---
+
+import hashlib as _hashlib
+import json as _json
+import time as _time
+
+_SEARCH_CACHE_FILE = Path("cache/search_cache.json")
+_SEARCH_CACHE_TTL = 3600  # 1 hour
+
+
+def _load_search_cache() -> dict:
+    try:
+        if _SEARCH_CACHE_FILE.exists():
+            return _json.loads(_SEARCH_CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_search_cache(cache: dict):
+    try:
+        _SEARCH_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Trim to 200 entries max
+        if len(cache) > 200:
+            keys = sorted(cache, key=lambda k: cache[k]["ts"])[-200:]
+            cache = {k: cache[k] for k in keys}
+        _SEARCH_CACHE_FILE.write_text(
+            _json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+def _search_cache_key(query: str) -> str:
+    q = query.lower().strip()
+    q = re.sub(r"[^\w\s]", " ", q)
+    q = re.sub(r"\s+", " ", q).strip()
+    tokens = sorted(q.split())
+    return _hashlib.md5((" ".join(tokens)).encode()).hexdigest()
+
+
+def _get_cached_search(query: str) -> str | None:
+    cache = _load_search_cache()
+    key = _search_cache_key(query)
+    entry = cache.get(key)
+    if entry and (_time.time() - entry["ts"]) < _SEARCH_CACHE_TTL:
+        logger.debug("Search cache hit: %s", query[:40])
+        return entry["result"]
+    return None
+
+
+def _set_cached_search(query: str, result: str):
+    cache = _load_search_cache()
+    key = _search_cache_key(query)
+    cache[key] = {"result": result, "ts": _time.time()}
+    _save_search_cache(cache)
+
+
+def tavily_direct_search(query: str) -> str:
+    """Call Tavily API directly — saves 1 LLM call vs using Search Agent.
+
+    Checks 1h cache first. Returns compact JSON string for prompt injection.
+    """
+    # Check cache
+    cached = _get_cached_search(query)
+    if cached:
+        return cached
+
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return '{"facts":[],"urls":[]}'
+
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=api_key)
+        response = client.search(
+            query=query,
+            search_depth="basic",
+            max_results=5,
+            include_answer=True,
+        )
+    except Exception as e:
+        logger.warning("Tavily search failed: %s", e)
+        return '{"facts":[],"urls":[]}'
+
+    results = response.get("results", [])
+    answer = response.get("answer")
+    facts = []
+    if answer:
+        facts.append(f"[摘要] {answer[:200]}")
+    for r in results:
+        content = r.get("content", "")[:150]
+        if content:
+            facts.append(content)
+    urls = [r.get("url", "") for r in results if r.get("url")]
+
+    result = _json.dumps({"facts": facts, "urls": urls}, ensure_ascii=False)
+    _set_cached_search(query, result)
+    return result
+
+
 # --- 2. Define Agents ---
 
 def content_analyst_agent():
@@ -55,7 +172,14 @@ def content_analyst_agent():
     return Agent(
         role="讲座分析师",
         goal="分析讲座内容与网络搜索结果，生成结构清晰、易懂的中文 Markdown 回答。",
-        backstory="你是一位经验丰富的讲师，善于用简单的方式解释复杂概念。你擅长将中文讲座资料和网络信息整合为全面的中文解释。",
+        backstory="""你是一位经验丰富的讲师，善于用简单的方式解释复杂概念。
+
+规则（始终遵守）：
+1. 讲座内容是主要信息来源，必须仔细阅读。
+2. 如果搜索结果包含 "Error:" 等错误信息，忽略它们，仅使用讲座内容。
+3. 以 **中文 Markdown** 格式输出，使用标题和列表组织内容。
+4. 标注来源——讲座内容标注文件名，网络信息标注 URL。
+5. 如果讲座内容不足以回答问题，请如实说明""",
         llm=deepseek_llm,
         verbose=False,
         allow_delegation=False,
@@ -74,17 +198,8 @@ def router_agent():
     )
 
 
-def search_agent():
-    """Agent that searches the web for supplementary information."""
-    return Agent(
-        role="网络研究员",
-        goal="搜索与讲座主题相关的定义、示例和最新进展。",
-        backstory="你是一位快速准确的网络研究员，擅长找到最相关的在线资源来丰富理解。",
-        tools=[TavilySearchTool(), GoogleProgrammableSearchTool()],
-        llm=deepseek_llm,
-        verbose=False,
-        allow_delegation=False,
-    )
+def search_agent():  # kept for backward compatibility; unused
+    return None
 
 
 
@@ -117,7 +232,7 @@ def create_tasks(folder_path="knowledge", user_question=None, conversation_manag
 
     conversation_context = ""
     if conversation_manager and len(conversation_manager) > 0:
-        conversation_context = conversation_manager.get_full_context_for_agent()
+        conversation_context = conversation_manager.get_summary_context()
 
     # Task 1: Internet search
     task_search = Task(
@@ -125,8 +240,13 @@ def create_tasks(folder_path="knowledge", user_question=None, conversation_manag
 
 {conversation_context}
 
-以中文返回结果并附上来源 URL。如果是追问，优先查找更新或更具体的信息。""",
-        expected_output="带来源 URL 的搜索要点列表。",
+以 **JSON 格式** 返回结果：
+{{
+  "facts": ["要点1", "要点2", ...],
+  "urls": ["来源URL1", "来源URL2", ...]
+}}
+每条 facts 控制在 100 字以内。""",
+        expected_output='JSON 对象，包含 facts 数组和 urls 数组。',
         agent=search_agent(),
     )
 
@@ -140,17 +260,8 @@ def create_tasks(folder_path="knowledge", user_question=None, conversation_manag
 {rag_context}
 
 --- 网络搜索结果 ---
-{{{{task_search.output}}}}
-
-说明：
-1. 仔细阅读中文讲座内容——这是你的主要信息来源。
-2. 如果搜索结果包含错误（如 "Error:" 开头），忽略它们，仅使用讲座内容。
-3. 将讲座知识与有效的搜索结果结合。
-4. 以 **中文 Markdown** 格式输出最终答案。
-5. 使用标题、列表组织内容，并标注来源（讲座来源文件名、网络 URL）。
-6. 如果讲座内容中包含图片，可以用 Markdown 图片语法引用：\n    ![描述](/images/文件名)
-7. 如果是追问，明确说明与之前对话的关联。""",
-        expected_output="带有引用的结构清晰的中文 Markdown 文档。",
+{{{{task_search.output}}}}""",
+        expected_output="中文 Markdown 回答。",
         agent=content_analyst_agent(),
         context=[task_search],
     )
@@ -261,9 +372,15 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
     if task_id:
         status_tracker.update(task_id, "routing", "正在分析问题意图...")
 
-    router = router_agent()
-    route_task = Task(
-        description=f"""判断以下用户问题属于哪个类别，只输出一个词：
+    # Rule-based pre-check: fast path for obvious web queries
+    intent = rule_router(user_question)
+    if intent:
+        logger.info("Rule router: %s → %s", user_question[:40], intent)
+    else:
+        # Fall back to LLM router for ambiguous queries
+        router = router_agent()
+        route_task = Task(
+            description=f"""判断以下用户问题属于哪个类别，只输出一个词：
 
 类别说明：
 - lecture：关于讲座内容、AI/技术概念、课程知识的问题
@@ -274,68 +391,86 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 用户问题：{user_question}
 
 输出（只输出一个类别词）：""",
-        expected_output="lecture 或 web 或 hybrid 或 unknown",
-        agent=router,
-    )
-    route_crew = Crew(agents=[router], tasks=[route_task], process=Process.sequential, verbose=False)
-    intent = str(route_crew.kickoff()).strip().lower()
-    logger.info("Router intent: %s → %s", user_question[:40], intent)
+            expected_output="lecture 或 web 或 hybrid 或 unknown",
+            agent=router,
+        )
+        route_crew = Crew(agents=[router], tasks=[route_task], process=Process.sequential, verbose=False)
+        intent = str(route_crew.kickoff()).strip().lower()
+        logger.info("LLM router: %s → %s", user_question[:40], intent)
 
     # ---- Step 2: RAG Retrieval (lecture / hybrid routes) ----
+    RAG_K = 3               # reduce from 5 to 3 → fewer tokens
+    MAX_RAG_CHARS = 4000    # hard character limit
+
     rag_context = ""
     if intent in ("lecture", "hybrid", "unknown"):
         if task_id:
             status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
+
         try:
-            raw_rag = vector_store.get_context_for_query(user_question, k=5)
+            raw_entries = vector_store.retrieve(user_question, k=RAG_K)
         except Exception as e:
             logger.warning("RAG retrieval failed: %s", e)
-            raw_rag = ""
+            raw_entries = []
 
-        # Grounding Check: verify relevance via LLM
-        if raw_rag:
-            rag_result = grounding_check(user_question, raw_rag)
-            if rag_result == "IRRELEVANT":
-                rag_context = ""  # clear context, will trigger "cannot answer" downstream
+        if raw_entries:
+            max_sim = max(e["similarity"] for e in raw_entries)
+
+            # Threshold gating: skip LLM for clear cases
+            if max_sim >= 0.82:
+                # High confidence → format directly, no LLM guard call
+                rag_context = vector_store.format_chunks_as_context(raw_entries)
+            elif max_sim <= 0.55:
+                # Low confidence → skip entirely, no LLM guard call
+                rag_context = ""
             else:
-                rag_context = rag_result
-        if not rag_context:
+                # Boundary case → call grounding_check LLM
+                raw_rag = vector_store.format_chunks_as_context(raw_entries)
+                rag_result = grounding_check(user_question, raw_rag)
+
+                if rag_result == "IRRELEVANT":
+                    # Retry once with expanded query
+                    retry_query = f"{user_question} 是什么 概念 原理 介绍"
+                    try:
+                        retry_entries = vector_store.retrieve(retry_query, k=RAG_K)
+                        if retry_entries:
+                            retry_rag = vector_store.format_chunks_as_context(retry_entries)
+                            rag_result = grounding_check(user_question, retry_rag)
+                            rag_context = rag_result if rag_result != "IRRELEVANT" else ""
+                        else:
+                            rag_context = ""
+                    except Exception:
+                        rag_context = ""
+                else:
+                    rag_context = rag_result
+        else:
             rag_context = ""
+
+        # Hard token cap
+        if rag_context and len(rag_context) > MAX_RAG_CHARS:
+            rag_context = rag_context[:MAX_RAG_CHARS] + "\n\n[内容已截断]"
 
     # ---- Step 3: Route execution ----
 
-    # Case A: intent is "web" (no RAG needed)
+    # Case A: intent is "web" (no RAG needed) — direct search, no Search Agent
     if intent == "web" and use_web_search:
         if task_id:
             status_tracker.update(task_id, "searching", "正在搜索网络资源...")
 
-        searcher = search_agent()
-        task_search = Task(
-            description=f"""搜索与以下问题相关的网页信息：{user_question}
-
-以中文返回结果并附上来源 URL。""",
-            expected_output="带来源 URL 的搜索要点列表。",
-            agent=searcher,
-        )
-        task_answer = Task(
-            description=f"""用户问题：{user_question}
-
---- 网络搜索结果 ---
-{{{{task_search.output}}}}
-
-说明：
-1. 根据网络搜索结果回答用户问题。
-2. 以 **中文 Markdown** 格式输出。
-3. 标注信息来源 URL。""",
-            expected_output="中文 Markdown 回答。",
-            agent=analyst,
-            context=[task_search],
-        )
+        search_context = tavily_direct_search(user_question)
 
         if task_id:
             status_tracker.update(task_id, "generating", "正在生成答案...")
 
-        crew = Crew(agents=[searcher, analyst], tasks=[task_search, task_answer],
+        task_answer = Task(
+            description=f"""用户问题：{user_question}
+
+--- 网络搜索结果 ---
+{search_context}""",
+            expected_output="中文 Markdown 回答。",
+            agent=analyst,
+        )
+        crew = Crew(agents=[analyst], tasks=[task_answer],
                     process=Process.sequential, verbose=False)
         result = crew.kickoff()
         if task_id:
@@ -359,7 +494,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             if task_id:
                 status_tracker.update(task_id, "generating", "正在根据讲座内容生成答案...")
 
-            conv_ctx = conversation_manager.get_full_context_for_agent() if conversation_manager and len(conversation_manager) > 0 else ""
+            conv_ctx = conversation_manager.get_summary_context() if conversation_manager and len(conversation_manager) > 0 else ""
 
             task_answer = Task(
                 description=f"""用户问题：{user_question}
@@ -367,13 +502,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 {conv_ctx}
 
 --- 讲座内容（RAG 检索）---
-{rag_context}
-
-说明：
-1. 仔细阅读中文讲座内容回答用户问题。
-2. 以 **中文 Markdown** 格式输出。
-3. 如果讲座内容不足以回答问题，请如实说明。
-4. 标注信息来源（文件名）。""",
+{rag_context}""",
                 expected_output="中文 Markdown 回答。",
                 agent=analyst,
             )
@@ -385,24 +514,18 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
                 status_tracker.update(task_id, "complete", "答案已生成！")
             return str(result)
 
-    # Case C: hybrid or unknown + web search ON → RAG + Web Search
-    searcher = search_agent()
-    conv_ctx = conversation_manager.get_full_context_for_agent() if conversation_manager and len(conversation_manager) > 0 else ""
+    # Case C: hybrid or unknown + web search ON → RAG + direct search, no Search Agent
+    conv_ctx = conversation_manager.get_summary_context() if conversation_manager and len(conversation_manager) > 0 else ""
 
     if task_id:
         status_tracker.update(task_id, "searching", "正在搜索网络资源...")
 
-    task_search = Task(
-        description=f"""搜索与以下问题相关的网页信息：{user_question}
-
-{conv_ctx}
-
-以中文返回结果并附上来源 URL。""",
-        expected_output="带来源 URL 的搜索要点列表。",
-        agent=searcher,
-    )
-
+    search_context = tavily_direct_search(user_question)
     rag_display = rag_context if rag_context else "向量库中未找到相关的讲座内容。"
+
+    if task_id:
+        status_tracker.update(task_id, "generating", "正在综合生成答案...")
+
     task_answer = Task(
         description=f"""用户问题：{user_question}
 
@@ -412,24 +535,14 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 {rag_display}
 
 --- 网络搜索结果 ---
-{{{{task_search.output}}}}
-
-说明：
-1. 仔细阅读中文讲座内容。
-2. 如果搜索结果包含错误，忽略它们。
-3. 以 **中文 Markdown** 格式输出最终答案。
-4. 标注来源（讲座文件名、网络 URL）。""",
-        expected_output="带有引用的中文 Markdown 文档。",
+{search_context}""",
+        expected_output="中文 Markdown 回答。",
         agent=analyst,
-        context=[task_search],
     )
 
-    if task_id:
-        status_tracker.update(task_id, "searching", "正在搜索网络资源...")
-
     crew = Crew(
-        agents=[searcher, analyst],
-        tasks=[task_search, task_answer],
+        agents=[analyst],
+        tasks=[task_answer],
         process=Process.sequential,
         verbose=False,
     )
