@@ -25,9 +25,9 @@ class GoogleProgrammableSearchTool(BaseTool):
         cse_id = os.getenv("GOOGLE_CSE_ID")
 
         if not api_key:
-            return "Error: GOOGLE_API_KEY is not set in the environment."
+            return "错误：未设置 GOOGLE_API_KEY 环境变量"
         if not cse_id:
-            return "Error: GOOGLE_CSE_ID is not set in the environment."
+            return "错误：未设置 GOOGLE_CSE_ID 环境变量"
 
         params = {
             "q": query,
@@ -42,17 +42,17 @@ class GoogleProgrammableSearchTool(BaseTool):
             with urlopen(request, timeout=20) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
-            return f"Google search HTTP error: {error.code} {error.reason}"
+            return f"Google 搜索 HTTP 错误：{error.code} {error.reason}"
         except URLError as error:
-            return f"Google search network error: {error.reason}"
+            return f"Google 搜索网络错误：{error.reason}"
         except Exception as error:
-            return f"Google search error: {error}"
+            return f"Google 搜索错误：{error}"
 
         items = payload.get("items", [])
         if not items:
-            return f"No Google search results found for: {query}"
+            return f"未找到与「{query}」相关的搜索结果"
 
-        results = [f"Google search results for: {query}", ""]
+        results = [f"「{query}」的搜索结果", ""]
         for index, item in enumerate(items, start=1):
             title = item.get("title", "No title")
             link = item.get("link", "")

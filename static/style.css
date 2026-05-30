@@ -395,6 +395,25 @@ html, body {
     background: var(--info);
 }
 
+
+
+/* ============================================================================
+   Markdown Images, Tables, Blockquotes, Lists & Horizontal Rules
+   ============================================================================ */
+
+.message-content img.msg-image {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: var(--radius-md);
+    margin: 8px 0;
+    border: 1px solid var(--border-color);
+    display: block;
+}
+
+.message.user .message-content img.msg-image {
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
 /* ============================================================================
    Markdown Tables, Blockquotes, Lists & Horizontal Rules
    ============================================================================ */
@@ -510,6 +529,45 @@ html, body {
     cursor: pointer;
     transition: var(--transition);
     font-size: 18px;
+}
+
+/* Web search toggle button */
+.btn-toggle-web {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    height: 44px;
+    color: var(--text-secondary);
+}
+
+.btn-toggle-web.active {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.btn-toggle-web.inactive {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.btn-toggle-web:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+}
+
+/* No-web badge on messages */
+.message-badge.no-web {
+    background: var(--warning);
 }
 
 .btn-send:hover {
@@ -978,6 +1036,27 @@ html, body {
 #loadingText {
     font-size: 16px;
     font-weight: 500;
+}
+
+.elapsed-time {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 4px;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.loading-tips {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 20px;
+    max-width: 280px;
+    line-height: 1.5;
+    animation: fadeInTip 0.6s ease-in-out;
+}
+
+@keyframes fadeInTip {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .progress-steps {

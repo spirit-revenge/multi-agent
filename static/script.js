@@ -39,7 +39,12 @@ const btnExportChat = document.getElementById('btnExportChat');
 const btnClearHistory = document.getElementById('btnClearHistory');
 const btnClearCache = document.getElementById('btnClearCache');
 const btnCreateSession = document.getElementById('btnCreateSession');
+const btnToggleWeb = document.getElementById('btnToggleWeb');
+const webSearchLabel = document.getElementById('webSearchLabel');
 const newSessionName = document.getElementById('newSessionName');
+
+// Web search toggle state
+let useWebSearch = true;
 
 // ============================================================================
 // Global State
@@ -75,6 +80,11 @@ function setupEventListeners() {
     btnSend.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', handleMessageInputKeypress);
     messageInput.addEventListener('keydown', handleMessageInputKeydown);
+
+    // Web search toggle
+    if (btnToggleWeb) {
+        btnToggleWeb.addEventListener('click', toggleWebSearch);
+    }
 
     // Session management
     btnSessions.addEventListener('click', openSessionsModal);
@@ -169,6 +179,7 @@ function stopElapsedTimer() {
 
 function updateLoadingTip(step) {
     const stepTips = {
+        'routing': '🎯 正在分析问题意图...',
         'rag': '💡 正在从讲座中检索相关知识...',
         'searching': '🌐 正在搜索网络上的补充信息...',
         'generating': '🧠 正在用 AI 分析综合信息生成答案...',
@@ -214,6 +225,9 @@ function subscribeToProgress(taskId) {
         try {
             const msg = JSON.parse(event.data);
             switch (msg.step) {
+                case 'routing':
+                    setProgressStep('stepRouting');
+                    break;
                 case 'rag':
                     setProgressStep('stepRag');
                     break;
@@ -281,7 +295,7 @@ async function sendMessage() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ message: message, task_id: taskId })
+            body: JSON.stringify({ message: message, task_id: taskId, use_web_search: useWebSearch })
         });
 
         const data = await response.json();
@@ -293,6 +307,14 @@ async function sendMessage() {
         }
 
         if (data.success) {
+            // Handle cannot_answer case (web search off, RAG found nothing)
+            if (data.cannot_answer) {
+                addMessageToChat('assistant', data.response, 'no-web', '⚠️ 未联网');
+                showToast('知识库中未找到相关信息', 'warning');
+                updateStatus();
+                return;
+            }
+
             const badge = data.from_cache ? 'cached' : 'fresh';
             const badgeText = data.from_cache ? '来自缓存' : '实时生成';
 
@@ -405,7 +427,7 @@ function markdownToHtml(markdown) {
     // Step 1: Extract & protect fenced code blocks
     const blocks = [];
     let html = markdown.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-        const placeholder = `%%BLOCK_${blocks.length}%%`;
+        const placeholder = `%%B${blocks.length}%%`;
         const langClass = lang ? ` class="language-${escapeHtml(lang)}"` : '';
         blocks.push(`<pre><code${langClass}>${escapeHtml(code.trimEnd())}</code></pre>`);
         return placeholder;
@@ -413,7 +435,7 @@ function markdownToHtml(markdown) {
 
     // —— Step 2: Extract & protect inline code ——
     html = html.replace(/`([^`]+)`/g, (_, code) => {
-        const placeholder = `%%BLOCK_${blocks.length}%%`;
+        const placeholder = `%%B${blocks.length}%%`;
         blocks.push(`<code>${escapeHtml(code)}</code>`);
         return placeholder;
     });
@@ -472,7 +494,7 @@ function markdownToHtml(markdown) {
         }
 
         // Skip if it's a protected block placeholder
-        if (/^%%BLOCK_\d+%%$/.test(t)) {
+        if (/^%%B\d+%%$/.test(t)) {
             flushList();
             out.push(line);
             continue;
@@ -529,10 +551,10 @@ function markdownToHtml(markdown) {
     html = out.join('\n');
 
     // —— Step 5: Inline formatting (applied last so block tags stay intact) ——
-    // Protect existing HTML tag attributes from inline regex
+    // Protect HTML tags from inline regex
     const protectedHtml = [];
     html = html.replace(/(<[^>]+>)/g, (match) => {
-        const ph = `%%HTML_${protectedHtml.length}%%`;
+        const ph = `%%H${protectedHtml.length}%%`;
         protectedHtml.push(match);
         return ph;
     });
@@ -542,9 +564,9 @@ function markdownToHtml(markdown) {
         .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="msg-image" loading="lazy">')
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
-    // Protect newly generated HTML tags from inline formatting
+    // Protect newly generated HTML tags
     html = html.replace(/(<[^>]+>)/g, (match) => {
-        const ph = `%%HTML_${protectedHtml.length}%%`;
+        const ph = `%%H${protectedHtml.length}%%`;
         protectedHtml.push(match);
         return ph;
     });
@@ -555,9 +577,12 @@ function markdownToHtml(markdown) {
         .replace(/\*([^\*]+)\*/g, '<em>$1</em>')
         .replace(/_([^_]+)_/g, '<em>$1</em>');
 
-    // —— Step 6: Restore protected blocks (code blocks, inline code, HTML tags) ——
-    html = html.replace(/%%BLOCK_(\d+)%%/g, (_, i) => blocks[parseInt(i)] || '');
-    html = html.replace(/%%HTML_(\d+)%%/g, (_, i) => protectedHtml[parseInt(i)] || '');
+    // —— Step 6: Restore protected blocks ——
+    html = html.replace(/%%H(\d+)%%/g, (_, i) => protectedHtml[parseInt(i)] || '');
+    html = html.replace(/%%B(\d+)%%/g, (_, i) => blocks[parseInt(i)] || '');
+
+    console.log("myhtml"+html);
+    console.log(protectedHtml);
 
     return html;
 }
@@ -1145,6 +1170,25 @@ function showToast(message, type = 'info') {
         toastEl.style.animation = 'slideOutRight 0.3s ease-out forwards';
         setTimeout(() => toastEl.remove(), 300);
     }, 4000);
+}
+
+// ============================================================================
+// Web Search Toggle
+// ============================================================================
+
+function toggleWebSearch() {
+    useWebSearch = !useWebSearch;
+    if (useWebSearch) {
+        btnToggleWeb.classList.add('active');
+        btnToggleWeb.classList.remove('inactive');
+        btnToggleWeb.title = '点击关闭联网搜索';
+        webSearchLabel.textContent = '联网';
+    } else {
+        btnToggleWeb.classList.remove('active');
+        btnToggleWeb.classList.add('inactive');
+        btnToggleWeb.title = '点击开启联网搜索';
+        webSearchLabel.textContent = '离线';
+    }
 }
 
 // ============================================================================

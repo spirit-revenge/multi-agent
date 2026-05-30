@@ -79,28 +79,26 @@ class ConversationManager:
         if not messages:
             return "No previous conversation history."
         
-        context = "--- Recent Conversation History ---\n"
+        context = "--- 最近对话历史 ---\n"
         for msg in messages:
-            role_name = "You" if msg["role"] == "user" else "Assistant"
+            role_name = "你" if msg["role"] == "user" else "助手"
             context += f"{role_name}: {msg['content'][:200]}...\n" if len(msg['content']) > 200 else f"{role_name}: {msg['content']}\n"
-        return context + "--- End of History ---\n"
+        return context + "--- 历史结束 ---\n"
     
     def get_full_context_for_agent(self) -> str:
         """获取完整的对话上下文供 Agent 参考"""
         if not self.history:
             return ""
         
-        context = "## Previous Conversation Context\n\n"
-        context += "The user has asked about lecture-related topics before. Here's the conversation history:\n\n"
+        context = "## 之前的对话上下文\n\n"
+        context += "用户之前询问过与讲座相关的问题，以下是对话历史：\n\n"
         
-        # 显示最近的对话（用户问题 + 关键回答摘要）
-        for i, msg in enumerate(self.history[-4:]):  # 最多显示最近 4 条
+        for i, msg in enumerate(self.history[-4:]):
             if msg.role == "user":
-                context += f"**User Q{i + 1}:** {msg.content[:300]}\n\n"
+                context += f"**用户问题 {i + 1}：** {msg.content[:300]}\n\n"
             else:
-                # 对助手的回复取前 500 字符
                 summary = msg.content[:500] + ("..." if len(msg.content) > 500 else "")
-                context += f"**Previous Answer:** {summary}\n\n"
+                context += f"**之前的回答：** {summary}\n\n"
         
         return context
     

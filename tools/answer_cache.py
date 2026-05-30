@@ -209,17 +209,17 @@ class AnswerCache:
     def display_cache(self) -> None:
         """Display cache statistics and recent entries."""
         stats = self.get_stats()
-        print(f"\nCache Statistics:")
-        print(f"  Total entries: {stats['total_entries']}")
-        print(f"  Valid entries: {stats['valid_entries']}")
-        print(f"  Expired entries: {stats['expired_entries']}")
+        print(f"\n缓存统计：")
+        print(f"  总条目：{stats['total_entries']}")
+        print(f"  有效条目：{stats['valid_entries']}")
+        print(f"  过期条目：{stats['expired_entries']}")
         
         if self.cache:
             print(f"\n📝 Recent cached questions:")
             for cached in self.cache[-5:]:  # Show last 5
                 age = (datetime.now() - datetime.fromisoformat(cached.timestamp)).days
-                status = "Valid" if self._is_cache_valid(cached) else "⚠ Expired"
-                print(f"  [{status}, {age} days ago] {cached.question[:70]}...")
+                status = "有效" if self._is_cache_valid(cached) else "⚠ 已过期"
+                print(f"  [{status}, {age}天前] {cached.question[:70]}...")
     
     def __len__(self) -> int:
         """Return number of valid cached entries."""

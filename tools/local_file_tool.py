@@ -17,7 +17,7 @@ class ReadLocalLectureFilesTool(BaseTool):
     def _run(self, folder_path: str) -> str:
         folder = Path(folder_path)
         if not folder.exists():
-            return f"Error: Folder '{folder_path}' does not exist."
+            return f"错误：文件夹 '{folder_path}' 不存在"
 
         results = []
         for file_path in folder.iterdir():
@@ -28,7 +28,7 @@ class ReadLocalLectureFilesTool(BaseTool):
                 content = self._read_pptx(file_path)
                 results.append(f"\n--- {file_path.name} ---\n{content}\n")
         if not results:
-            return "No PDF or PPT files found in the folder."
+            return "文件夹中未找到 PDF 或 PPT 文件"
         return "\n".join(results)
 
     def _read_pdf(self, path: Path) -> str:
@@ -41,7 +41,7 @@ class ReadLocalLectureFilesTool(BaseTool):
                     if page_text:
                         text += page_text
         except Exception as e:
-            text = f"[Error reading PDF: {e}]"
+            text = f"[读取 PDF 错误：{e}]"
         return text
 
     def _read_pptx(self, path: Path) -> str:
@@ -53,5 +53,5 @@ class ReadLocalLectureFilesTool(BaseTool):
                     if hasattr(shape, "text") and shape.text:
                         text += shape.text + "\n"
         except Exception as e:
-            text = f"[Error reading PPTX: {e}]"
+            text = f"[读取 PPTX 错误：{e}]"
         return text

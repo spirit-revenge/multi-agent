@@ -8,7 +8,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, send_from_directory, abort
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -136,7 +136,7 @@ def api_create_session():
         session['session_file'] = str(session_path)
         return jsonify({
             'success': True,
-            'message': 'Session created successfully',
+            'message': '会话创建成功',
             'session_file': str(session_path),
             'session_label': get_session_label_from_path(str(session_path))
         })
@@ -151,7 +151,7 @@ def api_switch_session(file_path):
         conv_mgr = get_conversation_manager_from_session()
         return jsonify({
             'success': True,
-            'message': 'Session switched successfully',
+            'message': '会话切换成功',
             'session_label': get_session_label_from_path(file_path),
             'message_count': len(conv_mgr)
         })
@@ -164,7 +164,7 @@ def api_delete_session(file_path):
     try:
         session_path = Path(file_path)
         if not session_manager.delete_session(session_path):
-            return jsonify({'success': False, 'error': 'Cannot delete this session'}), 400
+            return jsonify({'success': False, 'error': '无法删除此会话'}), 400
 
         # If the deleted session was the current one, switch to first available
         if session.get('session_file') == file_path:
@@ -175,7 +175,7 @@ def api_delete_session(file_path):
                 new_path = session_manager.create_session("default")
                 session['session_file'] = str(new_path)
 
-        return jsonify({'success': True, 'message': 'Session deleted'})
+        return jsonify({'success': True, 'message': '会话已删除'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -186,9 +186,10 @@ def api_chat():
         data = request.json
         user_message = data.get('message', '').strip()
         task_id = data.get('task_id', '')
+        use_web_search = data.get('use_web_search', True)
 
         if not user_message:
-            return jsonify({'success': False, 'error': 'Empty message'}), 400
+            return jsonify({'success': False, 'error': '消息不能为空'}), 400
 
         conv_mgr = get_conversation_manager_from_session()
 
@@ -221,6 +222,7 @@ def api_chat():
                 user_question=user_message,
                 conversation_manager=conv_mgr,
                 task_id=task_id,
+                use_web_search=use_web_search,
             )
         except Exception as e:
             if conv_mgr.history and conv_mgr.history[-1].role == "user":
@@ -229,20 +231,35 @@ def api_chat():
             return jsonify({'success': False, 'error': str(e)}), 500
         finally:
             status_tracker.cleanup(task_id)
+
+        # Handle "cannot answer" case (web search off, RAG found nothing)
+        if final_answer is None:
+            cannot_msg = (
+                "我无法从知识库中找到与您问题相关的信息。"
+                "如果您需要实时信息，请打开「联网搜索」开关后重试。"
+            )
+            conv_mgr.add_message("user", user_message)
+            conv_mgr.add_message("assistant", cannot_msg)
+            conv_mgr.save_session()
+            return jsonify({
+                'success': True,
+                'response': cannot_msg,
+                'from_cache': False,
+                'cannot_answer': True,
+                'timestamp': datetime.now().isoformat(),
+            })
         conv_mgr.add_message("assistant", final_answer)
         conv_mgr.save_session()
         answer_cache.save_answer(user_message, final_answer)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = Path(f"output/lecture_output_{timestamp}.md")
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text(str(final_answer), encoding="utf-8")
 
         return jsonify({
             'success': True,
             'response': final_answer,
             'from_cache': False,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'export_name': f"lecture_output_{timestamp}",
         })
 
     except Exception as e:
@@ -299,7 +316,7 @@ def api_clear_history():
     try:
         conv_mgr = get_conversation_manager_from_session()
         conv_mgr.clear_session()
-        return jsonify({'success': True, 'message': 'Conversation cleared'})
+        return jsonify({'success': True, 'message': '对话已清除'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -329,7 +346,7 @@ def api_get_cache():
 def api_clear_cache():
     try:
         answer_cache.clear_cache()
-        return jsonify({'success': True, 'message': 'Cache cleared successfully'})
+        return jsonify({'success': True, 'message': '缓存已清除'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -365,7 +382,7 @@ def api_list_knowledge():
         knowledge_dir = Path("knowledge")
         files = []
         for f in sorted(knowledge_dir.iterdir()):
-            if f.suffix.lower() not in ('.pdf', '.pptx'):
+            if f.suffix.lower() not in ('.pdf', '.pptx', '.docx'):
                 continue
             # Check if indexed by looking up a single chunk in ChromaDB
             indexed = False
@@ -393,17 +410,17 @@ def api_list_knowledge():
 def api_upload_knowledge():
     try:
         if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No file provided'}), 400
+            return jsonify({'success': False, 'error': '未提供文件'}), 400
 
         uploaded_file = request.files['file']
         if uploaded_file.filename == '':
-            return jsonify({'success': False, 'error': 'Empty filename'}), 400
+            return jsonify({'success': False, 'error': '文件名为空'}), 400
 
         ext = Path(uploaded_file.filename).suffix.lower()
-        if ext not in ('.pdf', '.pptx'):
+        if ext not in ('.pdf', '.pptx', '.docx'):
             return jsonify({
                 'success': False,
-                'error': f'Unsupported file type: {ext}. Only .pdf and .pptx are allowed.'
+                'error': f'不支持的文件类型：{ext}。仅支持 .pdf、.pptx 和 .docx'
             }), 400
 
         dest = Path("knowledge") / uploaded_file.filename
@@ -417,7 +434,7 @@ def api_upload_knowledge():
 
         return jsonify({
             'success': True,
-            'message': f'File "{uploaded_file.filename}" uploaded and indexed'
+            'message': f'文件 "{uploaded_file.filename}" 已上传并索引'
         })
     except Exception as e:
         logger.warning("Upload failed: %s", e)
@@ -429,27 +446,23 @@ def api_delete_knowledge(filename):
     try:
         # Prevent path traversal
         if '..' in filename or '/' in filename or '\\' in filename:
-            return jsonify({'success': False, 'error': 'Invalid filename'}), 400
+            return jsonify({'success': False, 'error': '文件名不合法'}), 400
 
         file_path = Path("knowledge") / filename
         if not file_path.exists():
-            return jsonify({'success': False, 'error': 'File not found'}), 404
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
 
-        # Remove chunks from ChromaDB
+        # Remove from ChromaDB (text + image descriptions + tables)
+        # Also deletes associated image files from images/
         try:
-            existing = vector_store.collection.get(
-                where={"source": str(file_path)}
-            )
-            existing_ids = existing.get('ids', [])
-            if existing_ids:
-                vector_store.collection.delete(ids=existing_ids)
-                logger.info("Removed %d chunks for %s", len(existing_ids), filename)
+            removed = vector_store.delete_file(str(file_path))
+            logger.info("Removed %d entries for %s", removed, filename)
         except Exception as e:
             logger.warning("Failed to remove from vector store: %s", e)
 
         # Delete the actual file
         file_path.unlink()
-        return jsonify({'success': True, 'message': f'File "{filename}" deleted'})
+        return jsonify({'success': True, 'message': f'文件 "{filename}" 已删除'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -458,14 +471,25 @@ def api_delete_knowledge(filename):
 def api_reindex_knowledge():
     try:
         vector_store.index_files("knowledge", force_reindex=True)
-        return jsonify({'success': True, 'message': 'Reindexing complete'})
+        return jsonify({'success': True, 'message': '重建索引完成'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/images/<path:filename>')
+def serve_images(filename):
+    """Serve extracted images from the images/ directory."""
+    from urllib.parse import unquote
+    filename = unquote(filename)
+    images_dir = Path('images')
+    if not (images_dir / filename).exists() or not (images_dir / filename).is_file():
+        abort(404)
+    return send_from_directory(str(images_dir), filename)
+
+
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({'success': False, 'error': 'Not found'}), 404
+    return jsonify({'success': False, 'error': '接口不存在'}), 404
 
 
 @app.errorhandler(500)
@@ -478,23 +502,23 @@ def internal_error(error):
 # ============================================================================
 
 if __name__ == '__main__':
-    print("Initializing vector store...")
+    print("正在初始化向量数据库...")
     try:
         knowledge_dir = Path("knowledge")
         knowledge_dir.mkdir(exist_ok=True)
         vector_store.index_files(str(knowledge_dir), force_reindex=False)
-        print(f"  Vector store ready. Lecture files location: {knowledge_dir.absolute()}")
+        print(f"  向量数据库就绪。讲座文件位置：{knowledge_dir.absolute()}")
     except Exception as e:
-        print(f"  Vector store initialization warning: {e}")
+        print(f"  向量数据库初始化警告：{e}")
 
     print("\n" + "=" * 70)
-    print("  LectureCrewLLM Web UI Started")
+    print("  LectureCrewLLM Web UI 已启动")
     print("=" * 70)
     port = int(os.getenv('WEB_UI_PORT', '7860'))
-    print(f"  Open your browser and go to: http://localhost:{port}")
-    print(f"  Lecture files: {Path('knowledge').absolute()}")
-    print(f"  Conversations: {Path('conversations').absolute()}")
-    print(f"  Outputs: {Path('output').absolute()}")
+    print(f"  打开浏览器访问：http://localhost:{port}")
+    print(f"  讲座文件：{Path('knowledge').absolute()}")
+    print(f"  对话目录：{Path('conversations').absolute()}")
+    print(f"  输出目录：{Path('output').absolute()}")
     print("=" * 70 + "\n")
 
     debug_mode = os.getenv('FLASK_DEBUG', '0') == '1'

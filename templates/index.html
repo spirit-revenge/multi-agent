@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LectureCrewLLM - Interactive Lecture Analysis</title>
+    <title>LectureCrewLLM - 智能讲座分析</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -13,66 +13,69 @@
         <aside class="sidebar"> 
             <!-- Session Manager -->
             <div class="sidebar-section">
-                <h3>Conversations</h3>
+                <h3>所有对话</h3>
                 <div class="session-info">
-                    <small>Current:</small>
-                    <p class="current-session" id="currentSession">Loading...</p>
+                    <small>当前对话:</small>
+                    <p class="current-session" id="currentSession">加载中...</p>
                 </div>
                 
                 <div class="button-group">
                     <button id="btnSessions" class="btn btn-secondary btn-small">
-                        <i class="fas fa-exchange-alt"></i> Switch/Create
+                        <i class="fas fa-exchange-alt"></i> 切换/创建
                     </button>
                 </div>
             </div>
 
             <!-- Knowledge Files -->
             <div class="sidebar-section">
-                <h3>Lecture Files</h3>
+                <h3>文件</h3>
                 <div class="knowledge-list" id="knowledgeList">
-                    <p class="knowledge-empty">No files loaded</p>
+                    <p class="knowledge-empty">无文件加载</p>
                 </div>
                 
                 <div class="button-group">
                     <button id="btnUploadFile" class="btn btn-secondary btn-small">
-                        <i class="fas fa-upload"></i> Upload
+                        <i class="fas fa-upload"></i> 上传
                     </button>
                     <button id="btnReindex" class="btn btn-secondary btn-small">
-                        <i class="fas fa-sync"></i> Reindex
+                        <i class="fas fa-sync"></i> 重建索引
                     </button>
                 </div>
             </div>
 
             <!-- Cache Info -->
             <div class="sidebar-section">
-                <h3>Cache</h3>
+                <h3>缓存</h3>
                 <div class="cache-stats" id="cacheStats">
                     <div class="stat-item">
-                        <span class="stat-label">Cached:</span>
+                        <span class="stat-label">已缓存:</span>
                         <span class="stat-value" id="cacheCount">0</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label">Valid:</span>
+                        <span class="stat-label">可用:</span>
                         <span class="stat-value" id="cacheValid">0</span>
                     </div>
                 </div>
                 
                 <button id="btnClearCache" class="btn btn-danger btn-small btn-icon">
-                    <i class="fas fa-trash"></i> Clear Cache
+                    <i class="fas fa-trash"></i> 清除缓存
                 </button>
             </div>
 
             <!-- Controls -->
             <div class="sidebar-section">
-                <h3>Controls</h3>
+                <h3>控制</h3>
+                <button id="btnExportChat" class="btn btn-secondary btn-block">
+                    <i class="fas fa-download"></i> 导出对话
+                </button>
                 <button id="btnClearHistory" class="btn btn-warning btn-block">
-                    <i class="fas fa-broom"></i> Clear Conversation
+                    <i class="fas fa-broom"></i> 清除对话
                 </button>
             </div>
 
             <!-- Footer -->
             <div class="sidebar-footer">
-                <small>Message count: <span id="messageCount">0</span></small>
+                <small>信息数量: <span id="messageCount">0</span></small>
             </div>
         </aside>
 
@@ -81,40 +84,35 @@
             <!-- Header -->
             <header class="chat-header">
                 <h2 id="pageTitle">
-                    <i class="fas fa-comments"></i> Chat with Your Lectures
+                    <i class="fas fa-comments"></i> 与你的讲座对话
                 </h2>
-                <div class="header-status">
-                    <span class="status-indicator" id="statusIndicator">
-                        <i class="fas fa-circle"></i> Ready
-                    </span>
-                </div>
             </header>
 
             <!-- Chat Messages -->
             <div class="chat-container" id="chatContainer">
                 <div class="welcome-message">
                     <div class="welcome-box">
-                        <h3>👋 Welcome to LectureCrewLLM</h3>
-                        <p>Ask questions about your lectures and get AI-powered answers enhanced with web research.</p>
+                        <h3>👋 欢迎使用 LectureCrewLLM</h3>
+                        <p>提出关于讲座的问题，AI 将结合网络搜索为你解答。</p>
                         <div class="features">
                             <div class="feature-item">
                                 <i class="fas fa-database"></i>
-                                <span>RAG-Enhanced Analysis</span>
+                                <span>RAG 增强分析</span>
                             </div>
                             <div class="feature-item">
                                 <i class="fas fa-globe"></i>
-                                <span>Web Research Integration</span>
+                                <span>网络搜索整合</span>
                             </div>
                             <div class="feature-item">
                                 <i class="fas fa-bolt"></i>
-                                <span>Smart Caching</span>
+                                <span>智能缓存</span>
                             </div>
                             <div class="feature-item">
                                 <i class="fas fa-floppy-disk"></i>
-                                <span>Multi-Session Support</span>
+                                <span>多会话支持</span>
                             </div>
                         </div>
-                        <p class="hint-text">💡 Try asking: "What is transformer architecture?" or any question about your lectures.</p>
+                        <p class="hint-text">💡 试试提问："什么是 Transformer 架构？"</p>
                     </div>
                 </div>
             </div>
@@ -125,15 +123,18 @@
                     <textarea 
                         id="messageInput" 
                         class="message-input" 
-                        placeholder="Ask a question about your lectures..."
+                        placeholder="输入关于讲座的问题..."
                         rows="3"
                     ></textarea>
-                    <button id="btnSend" class="btn-send" title="Send (Shift+Enter)">
+                    <button id="btnSend" class="btn-send" title="发送 (Shift+Enter)">
                         <i class="fas fa-paper-plane"></i>
+                    </button>
+                    <button id="btnToggleWeb" class="btn-toggle-web active" title="点击关闭联网搜索">
+                        🌐 <span id="webSearchLabel">联网</span>
                     </button>
                 </div>
                 <div class="input-hints">
-                    <small>Press <kbd>Shift</kbd> + <kbd>Enter</kbd> to send, <kbd>Enter</kbd> for new line</small>
+                    <small><kbd>Shift</kbd> + <kbd>Enter</kbd> 发送，<kbd>Enter</kbd> 换行</small>
                 </div>
             </div>
         </main>
@@ -144,31 +145,31 @@
         <div id="sessionsModal" class="modal hidden">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>Manage Conversations</h2>
+                    <h2>管理会话</h2>
                     <button class="modal-close">&times;</button>
                 </div>
                 
                 <div class="modal-body">
                     <!-- Existing Sessions -->
                     <div class="sessions-section">
-                        <h3>Existing Sessions</h3>
+                        <h3>已有会话</h3>
                         <div class="sessions-list" id="sessionsList">
-                            <p class="loading">Loading sessions...</p>
+                            <p class="loading">加载会话中...</p>
                         </div>
                     </div>
 
                     <!-- Create New Session -->
                     <div class="sessions-section">
-                        <h3>Create New Session</h3>
+                        <h3>创建新会话</h3>
                         <div class="new-session-form">
                             <input 
                                 type="text" 
                                 id="newSessionName" 
                                 class="form-input" 
-                                placeholder="Session name (optional)"
+                                placeholder="会话名称（可选）"
                             >
                             <button id="btnCreateSession" class="btn btn-primary">
-                                <i class="fas fa-plus"></i> Create
+                                <i class="fas fa-plus"></i> 创建
                             </button>
                         </div>
                     </div>
@@ -180,13 +181,13 @@
         <div id="historyModal" class="modal hidden">
             <div class="modal-content modal-large">
                 <div class="modal-header">
-                    <h2>Conversation History</h2>
+                    <h2>对话历史</h2>
                     <button class="modal-close">&times;</button>
                 </div>
                 
                 <div class="modal-body">
                     <div class="history-list" id="historyList">
-                        <p class="loading">Loading history...</p>
+                        <p class="loading">加载历史中...</p>
                     </div>
                 </div>
             </div>
@@ -196,24 +197,34 @@
         <div id="loadingOverlay" class="loading-overlay hidden">
             <div class="spinner">
                 <div class="spinner-ring"></div>
-                <p id="loadingText">Processing your question...</p>
+                <p id="loadingText">正在处理你的问题...</p>
+                <div class="elapsed-time" id="elapsedTime">已用 0 秒</div>
                 <div id="progressSteps" class="progress-steps">
+                    <div id="stepRouting" class="progress-step">
+                        <span class="step-dot"></span>
+                        <span class="step-label">分析问题意图</span>
+                    </div>
+                    <div id="stepRag" class="progress-step">
+                        <span class="step-dot"></span>
+                        <span class="step-label">检索讲座知识库</span>
+                    </div>
                     <div id="stepSearching" class="progress-step">
                         <span class="step-dot"></span>
-                        <span class="step-label">Searching web resources</span>
+                        <span class="step-label">搜索网络资源</span>
                     </div>
                     <div id="stepGenerating" class="progress-step">
                         <span class="step-dot"></span>
-                        <span class="step-label">Synthesizing answer</span>
+                        <span class="step-label">综合生成答案</span>
                     </div>
                 </div>
+                <div class="loading-tips" id="loadingTips">💡 正在从讲座中检索相关知识...</div>
             </div>
         </div>
 
         <!-- Toast Notifications -->
         <div id="toastContainer" class="toast-container"></div>
         <!-- Hidden file input for upload -->
-        <input type="file" id="fileInput" class="hidden" accept=".pdf,.pptx" multiple>
+        <input type="file" id="fileInput" class="hidden" accept=".pdf,.pptx,.docx" multiple>
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>

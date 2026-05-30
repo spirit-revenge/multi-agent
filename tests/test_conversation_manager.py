@@ -108,5 +108,5 @@ class TestConversationManager:
         ctx = mgr.get_full_context_for_agent()
         assert "Explain transformer" in ctx
         assert "A transformer is" in ctx
-        assert "Previous Conversation Context" in ctx
+        assert "之前的对话上下文" in ctx
         path.unlink(missing_ok=True)

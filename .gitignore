@@ -12,6 +12,8 @@ venv.bak/
 .vscode/
 .DS_Store
 *.log
+.reasonix/
+images/
 
 
 # Database & runtime data
