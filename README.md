@@ -1,5 +1,7 @@
 # LectureCrewLLM
 
+> [English](README.md) | [中文](README_CN.md)
+
 Multi-agent lecture analysis system with **multi-modal RAG** (text + images + tables), web search, and interactive Web UI.
 
 Built with [CrewAI](https://github.com/crewAIInc/crewAI), ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-transformers for cross-lingual embeddings, and BLIP for image captioning.
@@ -147,13 +149,190 @@ lecture_crewLLM/
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical documentation including:
-- Agent design and data flow
-- Multi-modal RAG pipeline (text + images + tables)
-- SSE progress flow
-- API endpoint reference
-- Error handling strategy
-- Caching design
+### System Flow
+
+```
+用户提问
+    │
+    ▼
+┌─ Cache Check ────────────────────────┐
+│  命中 → 直接返回缓存答案             │
+│  未命中 → 继续                       │
+└──────────────────────────────────────┘
+    │
+    ▼
+┌─ Router Agent (意图路由) ────────────┐
+│  分类: lecture / web / hybrid        │
+│  → 决定走哪条 pipeline               │
+└──────────────────────────────────────┘
+    │
+    ├── "lecture" ────→ RAG → Grounding Check → Analyst
+    │                    ↑ 向量检索 + 相关性验证
+    ├── "web" ────────→ Web Search → Analyst
+    │                    ↑ Google Programmable Search
+    └── "hybrid" ──────→ RAG + Web Search → Grounding → Analyst
+                              │
+                              ▼
+                         SSE 实时进度推送 (4步: 路由→检索→搜索→生成)
+                              │
+                              ▼
+                       前端显示 Markdown 答案
+```
+
+### Multi-Agent Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                   CrewAI                          │
+│              Sequential Process                   │
+│                                                   │
+│  ┌──────────────┐   ┌──────────────┐             │
+│  │ 意图路由器    │   │ 相关性验证员  │             │
+│  │ (Router)     │   │ (Grounding)  │             │
+│  │ LLM, 0.1 temp│   │ LLM, 0.1 temp│             │
+│  │ ~50 tokens   │   │ ~100 tokens  │             │
+│  └──────────────┘   └──────────────┘             │
+│                                                   │
+│  ┌──────────────┐   ┌──────────────┐             │
+│  │ 网络研究员    │   │ 讲座分析师    │             │
+│  │ (Searcher)   │   │ (Analyst)    │             │
+│  │ Google Search│   │ RAG + Web →  │             │
+│  │ Tool         │   │ Markdown回答  │             │
+│  └──────────────┘   └──────────────┘             │
+└──────────────────────────────────────────────────┘
+```
+
+### Multi-Modal RAG Pipeline
+
+```
+knowledge/*.pdf / *.pptx / *.docx
+    │
+    ├── DocumentProcessor
+    │   ├── extract_text()    → 语义分块（段落/标题/句子边界）
+    │   ├── extract_images()  → PIL Image → BLIP描述 → 存文件
+    │   └── extract_tables()  → 转为 Markdown 表格字符串
+    │
+    └── ChromaDB PersistentClient
+        ├── document: 文本内容 / 图片描述 / 表格 Markdown
+        ├── metadata:
+        │   ├── type:       "text" | "image" | "table"
+        │   ├── source:     来源文件名
+        │   ├── indexed_at: 索引时间戳
+        │   └── image_path: 图片路径（仅 image 类型）
+        └── vector: 384维嵌入（paraphrase-multilingual-MiniLM-L12-v2）
+                │
+                ▼
+        用户提问 → 同一模型嵌入
+                │
+                ▼
+        余弦相似度 ANN 搜索 → Top-K 结果
+                │
+                ▼
+        Grounding Check: RELEVANT / IRRELEVANT
+                │
+                ▼
+        注入 Analyst Agent prompt
+```
+
+### Data Storage Structure
+
+每个 ChromaDB 条目：
+
+```
+{
+  id:        "lecture1_text_3"           # {stem}_{type}_{index}
+  document:  "Transformer 的核心是自注意力机制..."
+  metadata: {
+    type:        "text"                  # text | image | table
+    source:      "knowledge/lecture1.pptx"
+    chunk_index: 3
+    indexed_at:  "2026-05-26T10:30:00"
+  }
+  vector:    [0.123, 0.456, ...]         # 384 维 float
+}
+```
+
+图片类型额外包含 `image_path` 和 `image_filename` 字段，图片二进制文件存储在 `images/` 目录下。
+
+### SSE Progress Flow
+
+```
+Browser                          Flask Server
+  │                                  │
+  ├─ GET /api/chat/task ────────────→│  (获取 task_id)
+  │←──────── {task_id: "abc123"} ────┤
+  │                                  │
+  ├─ GET /api/chat/stream?task_id=   │  (EventSource)
+  │                                  │
+  ├─ POST /api/chat {message, task_id}──┤
+  │                                  ├── Router: 分析问题意图
+  │←──── SSE: {"step":"routing"} ─────┤
+  │                                  ├── RAG: 检索知识库
+  │←──── SSE: {"step":"rag"} ────────┤
+  │                                  ├── Web Search / Grounding
+  │←──── SSE: {"step":"searching"} ───┤
+  │                                  ├── Analyst: 生成答案
+  │←──── SSE: {"step":"generating"} ──┤
+  │                                  │
+  │←── SSE: {"step":"complete"} ─────┤
+  │←──────── {response: "..."} ──────┤
+```
+
+### REST API Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/status` | System status |
+| `GET` | `/api/sessions` | List all sessions |
+| `POST` | `/api/sessions` | Create new session |
+| `POST` | `/api/sessions/<path>` | Switch to session |
+| `DELETE` | `/api/sessions/<path>` | Delete session |
+| `GET` | `/api/chat/task` | Get SSE task ID |
+| `POST` | `/api/chat` | Send message |
+| `GET` | `/api/chat/stream` | SSE progress stream |
+| `GET` | `/api/history` | Conversation history |
+| `DELETE` | `/api/history` | Clear history |
+| `GET` | `/api/knowledge` | List files |
+| `POST` | `/api/knowledge/upload` | Upload file |
+| `DELETE` | `/api/knowledge/<filename>` | Delete file |
+| `POST` | `/api/knowledge/reindex` | Force reindex |
+| `GET` | `/api/cache` | Cache stats |
+| `DELETE` | `/api/cache` | Clear cache |
+| `GET` | `/images/<filename>` | Serve extracted images |
+
+### Web UI Layout
+
+```
+┌──────────────┬──────────────────────────────────┐
+│  侧边栏       │  主聊天区                        │
+│              │  ┌──────────────────────────┐    │
+│  📚 对话      │  │ 历史消息自动显示在主界面  │    │
+│  ├ 当前会话   │  │ 📝 用户消息              │    │
+│  └ 切换/创建  │  │ 🤖 助手消息 [+ 导出按钮]  │    │
+│              │  └──────────────────────────┘    │
+│  📁 讲座文件   │                                  │
+│  ├ 文件列表   │  ┌────────────────────────┐     │
+│  ├ 上传/删除  │  │ 输入框     [发送] [🌐联网] │   │
+│  └ 重建索引   │  │ Shift+Enter 发送         │    │
+│              │  └────────────────────────┘     │
+│  ⚡ 缓存      │                                  │
+│  🎛️ 控制      │  加载时: 4步进度 + 计时器 + 提示  │
+│  └ 导出对话   │                                  │
+└──────────────┴──────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Sequential over Hierarchical** | Hierarchical calls Manager 3 extra times (~24s). Sequential uses 2 LLM calls (~12s). |
+| **Image as text description** | Images are BLIP-captioned, description is vectorized. Avoids multi-modal embedding model. |
+| **Semantic chunking** | Paragraph/heading boundaries instead of fixed 500-char split. Respects document structure. |
+| **Grounding Check** | LLM verifies RAG results relevance before passing to Analyst. Prevents irrelevant context leakage. |
+| **Router Agent** | Classifies intent before processing. Weather questions skip RAG entirely (avoid "temperature" ambiguity). |
+| **Cache normalization** | MD5 hash after removing punctuation + stop words + sorting tokens. "What is BERT?" ≡ "BERT" |
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for more detailed technical documentation.
 
 ## Troubleshooting
 
