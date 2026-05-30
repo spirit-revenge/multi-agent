@@ -418,8 +418,8 @@ class LectureVectorStore:
                 context += f"![{entry['content']}](/images/{safe_name})\n\n"
             text_idx += 1
 
-        # Tell the agent it can embed images in its answer
-        context += "你可以在回答中引用上述图片，使用 Markdown 图片语法：![描述](/images/文件名)\n"
+        # Tell the agent to use the actual image references above — do NOT invent new paths
+        context += "注意：上述每张图片后面都已附带了正确的 Markdown 引用路径，**直接复制即可**。不要自己编造 /images/ 路径。\n"
 
         return context
 

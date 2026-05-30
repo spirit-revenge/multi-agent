@@ -11,6 +11,7 @@ from tools.conversation_manager import ConversationManager
 from tools.answer_cache import AnswerCache
 from tools.session_manager import ConversationSessionManager, SessionInfo
 from tools.google_search_tool import GoogleProgrammableSearchTool
+from tools.tavily_search_tool import TavilySearchTool
 from tools.status_tracker import status_tracker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -79,7 +80,7 @@ def search_agent():
         role="网络研究员",
         goal="搜索与讲座主题相关的定义、示例和最新进展。",
         backstory="你是一位快速准确的网络研究员，擅长找到最相关的在线资源来丰富理解。",
-        tools=[GoogleProgrammableSearchTool()],
+        tools=[TavilySearchTool(), GoogleProgrammableSearchTool()],
         llm=deepseek_llm,
         verbose=False,
         allow_delegation=False,
@@ -343,18 +344,25 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 
     # Case B: intent is "lecture" or web search is OFF
     if intent == "lecture" or not use_web_search:
-        if not rag_context:
+        # If web search is OFF and RAG is empty → cannot answer
+        if not use_web_search and not rag_context:
             if task_id:
                 status_tracker.update(task_id, "complete", "无法回答")
             return None  # signal: cannot answer
 
-        if task_id:
-            status_tracker.update(task_id, "generating", "正在根据讲座内容生成答案...")
+        # If web search is ON but RAG is empty → fall through to web-only search (Case C)
+        if not rag_context and use_web_search:
+            pass  # will fall through to Case C below
 
-        conv_ctx = conversation_manager.get_full_context_for_agent() if conversation_manager and len(conversation_manager) > 0 else ""
+        # If RAG context exists → lecture-only answer
+        if rag_context:
+            if task_id:
+                status_tracker.update(task_id, "generating", "正在根据讲座内容生成答案...")
 
-        task_answer = Task(
-            description=f"""用户问题：{user_question}
+            conv_ctx = conversation_manager.get_full_context_for_agent() if conversation_manager and len(conversation_manager) > 0 else ""
+
+            task_answer = Task(
+                description=f"""用户问题：{user_question}
 
 {conv_ctx}
 
@@ -366,16 +374,16 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 2. 以 **中文 Markdown** 格式输出。
 3. 如果讲座内容不足以回答问题，请如实说明。
 4. 标注信息来源（文件名）。""",
-            expected_output="中文 Markdown 回答。",
-            agent=analyst,
-        )
+                expected_output="中文 Markdown 回答。",
+                agent=analyst,
+            )
 
-        crew = Crew(agents=[analyst], tasks=[task_answer],
-                    process=Process.sequential, verbose=False)
-        result = crew.kickoff()
-        if task_id:
-            status_tracker.update(task_id, "complete", "答案已生成！")
-        return str(result)
+            crew = Crew(agents=[analyst], tasks=[task_answer],
+                        process=Process.sequential, verbose=False)
+            result = crew.kickoff()
+            if task_id:
+                status_tracker.update(task_id, "complete", "答案已生成！")
+            return str(result)
 
     # Case C: hybrid or unknown + web search ON → RAG + Web Search
     searcher = search_agent()

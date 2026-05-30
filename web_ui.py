@@ -482,7 +482,16 @@ def serve_images(filename):
     from urllib.parse import unquote
     filename = unquote(filename)
     images_dir = Path('images')
-    if not (images_dir / filename).exists() or not (images_dir / filename).is_file():
+    file_path = images_dir / filename
+    # Security: prevent path traversal
+    try:
+        file_path = file_path.resolve()
+        images_dir_resolved = images_dir.resolve()
+        if not str(file_path).startswith(str(images_dir_resolved)):
+            abort(404)
+    except (ValueError, OSError):
+        abort(404)
+    if not file_path.exists() or not file_path.is_file():
         abort(404)
     return send_from_directory(str(images_dir), filename)
 
