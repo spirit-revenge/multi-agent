@@ -11,6 +11,8 @@ const messageInput = document.getElementById('messageInput');
 const btnSend = document.getElementById('btnSend');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
+const elapsedTime = document.getElementById('elapsedTime');
+const loadingTips = document.getElementById('loadingTips');
 const toastContainer = document.getElementById('toastContainer');
 
 // Sidebar elements
@@ -33,6 +35,7 @@ const fileInput = document.getElementById('fileInput');
 
 // Buttons
 const btnSessions = document.getElementById('btnSessions');
+const btnExportChat = document.getElementById('btnExportChat');
 const btnClearHistory = document.getElementById('btnClearHistory');
 const btnClearCache = document.getElementById('btnClearCache');
 const btnCreateSession = document.getElementById('btnCreateSession');
@@ -42,9 +45,20 @@ const newSessionName = document.getElementById('newSessionName');
 // Global State
 // ============================================================================
 
+const TIPS = [
+    '💡 正在从讲座中检索相关知识...',
+    '🌐 正在搜索网络上的补充信息...',
+    '🧠 正在用 AI 综合分析多源信息...',
+    '⏳ 正在生成答案，请稍候...',
+    '🔍 查找更详细的相关资料...',
+];
+
 let isProcessing = false;
 let currentSessionLabel = 'Loading...';
 let activeEventSource = null;
+let elapsedTimer = null;
+let elapsedSeconds = 0;
+let tipIndex = 0;
 
 // ============================================================================
 // Event Listeners
@@ -67,12 +81,13 @@ function setupEventListeners() {
     btnCreateSession.addEventListener('click', createNewSession);
 
     // History
+    if (btnExportChat) btnExportChat.addEventListener('click', exportConversation);
     btnClearHistory.addEventListener('click', clearConversation);
 
     // Knowledge management
     btnUploadFile.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileUpload);
-    btnReindex.addEventListener('click', reindexKnowledge);
+    if (btnReindex) btnReindex.addEventListener('click', reindexKnowledge);
 
     // Cache
     btnClearCache.addEventListener('click', clearCache);
@@ -116,6 +131,55 @@ function resetProgressSteps() {
     document.querySelectorAll('.progress-step').forEach(el => {
         el.classList.remove('active', 'done');
     });
+    if (loadingTips) {
+        loadingTips.textContent = TIPS[0];
+    }
+    if (elapsedTime) {
+        elapsedTime.textContent = '已用 0 秒';
+    }
+}
+
+function startElapsedTimer() {
+    elapsedSeconds = 0;
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = setInterval(() => {
+        elapsedSeconds++;
+        if (elapsedTime) {
+            elapsedTime.textContent = `已用 ${elapsedSeconds} 秒`;
+        }
+        // Rotate tip every 8 seconds
+        if (elapsedSeconds > 0 && elapsedSeconds % 8 === 0) {
+            tipIndex = (tipIndex + 1) % TIPS.length;
+            if (loadingTips) {
+                loadingTips.style.animation = 'none';
+                loadingTips.offsetHeight; // trigger reflow
+                loadingTips.textContent = TIPS[tipIndex];
+                loadingTips.style.animation = 'fadeInTip 0.6s ease-in-out';
+            }
+        }
+    }, 1000);
+}
+
+function stopElapsedTimer() {
+    if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+    }
+}
+
+function updateLoadingTip(step) {
+    const stepTips = {
+        'rag': '💡 正在从讲座中检索相关知识...',
+        'searching': '🌐 正在搜索网络上的补充信息...',
+        'generating': '🧠 正在用 AI 分析综合信息生成答案...',
+        'complete': '✅ 答案已生成！',
+    };
+    if (loadingTips && stepTips[step]) {
+        loadingTips.style.animation = 'none';
+        loadingTips.offsetHeight;
+        loadingTips.textContent = stepTips[step];
+        loadingTips.style.animation = 'fadeInTip 0.6s ease-in-out';
+    }
 }
 
 function setProgressStep(stepId) {
@@ -136,6 +200,7 @@ function setProgressStep(stepId) {
             el.classList.remove('active', 'done');
         }
     });
+    updateLoadingTip(stepId);
 }
 
 function subscribeToProgress(taskId) {
@@ -149,7 +214,10 @@ function subscribeToProgress(taskId) {
         try {
             const msg = JSON.parse(event.data);
             switch (msg.step) {
-                case 'starting':
+                case 'rag':
+                    setProgressStep('stepRag');
+                    break;
+                case 'searching':
                     setProgressStep('stepSearching');
                     break;
                 case 'generating':
@@ -192,10 +260,11 @@ async function sendMessage() {
     // Add user message to chat
     addMessageToChat('user', message);
 
-    // Show loading overlay with progress steps
+    // Show loading overlay with progress steps + timer
     isProcessing = true;
     resetProgressSteps();
     showLoadingOverlay(true);
+    startElapsedTimer();
 
     try {
         // Get a fresh task_id for progress tracking
@@ -225,18 +294,18 @@ async function sendMessage() {
 
         if (data.success) {
             const badge = data.from_cache ? 'cached' : 'fresh';
-            const badgeText = data.from_cache ? 'From Cache' : 'Fresh Response';
+            const badgeText = data.from_cache ? '来自缓存' : '实时生成';
 
-            addMessageToChat('assistant', data.response, badge, badgeText);
+            addMessageToChat('assistant', data.response, badge, badgeText, data.export_name);
 
             const toastMsg = data.from_cache
-                ? 'Answer found in cache!'
-                : 'Answer generated successfully';
+                ? '✅ 答案来自缓存'
+                : '✅ 答案已生成';
             showToast(toastMsg, 'success');
 
             updateStatus();
         } else {
-            showToast('Error: ' + data.error, 'error');
+            showToast('错误：' + data.error, 'error');
             const lastMessage = chatContainer.lastElementChild;
             if (lastMessage && lastMessage.classList.contains('user')) {
                 lastMessage.remove();
@@ -244,9 +313,10 @@ async function sendMessage() {
         }
     } catch (error) {
         console.error('Error sending message:', error);
-        showToast('Error: Could not send message', 'error');
+        showToast('发送失败：无法连接到服务器', 'error');
     } finally {
         isProcessing = false;
+        stopElapsedTimer();
         showLoadingOverlay(false);
         if (activeEventSource) {
             activeEventSource.close();
@@ -256,7 +326,7 @@ async function sendMessage() {
     }
 }
 
-function addMessageToChat(role, content, badge = null, badgeText = null) {
+function addMessageToChat(role, content, badge = null, badgeText = null, exportName = null) {
     // Remove welcome message if present
     const welcomeMsg = chatContainer.querySelector('.welcome-message');
     if (welcomeMsg) {
@@ -282,6 +352,26 @@ function addMessageToChat(role, content, badge = null, badgeText = null) {
 
     bubbleEl.appendChild(contentEl);
 
+    // Add export button for assistant messages
+    if (role === 'assistant' && content) {
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'message-export-btn';
+        exportBtn.title = '导出为 Markdown 文件';
+        exportBtn.innerHTML = '<i class="fas fa-download"></i>';
+        const fileName = exportName || `lecture_output_${Date.now()}`;
+        exportBtn.addEventListener('click', () => {
+            const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${fileName}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('✅ 已导出 Markdown 文件', 'success');
+        });
+        bubbleEl.appendChild(exportBtn);
+    }
+
     // Add badge if provided
     if (badge && badgeText) {
         const badgeEl = document.createElement('div');
@@ -306,7 +396,13 @@ function addMessageToChat(role, content, badge = null, badgeText = null) {
 }
 
 function markdownToHtml(markdown) {
-    // —— Step 1: Extract & protect fenced code blocks ——
+    // Step 0: Strip LLM artifacts (%%HTML0%%, %%BLOCK1%%, etc.)
+    // These tokens are sometimes output by the LLM; strip them before rendering.
+    markdown = markdown
+        .replace(/%%HTML\d+%%/g, '')
+        .replace(/%%BLOCK\d+%%/g, '');
+
+    // Step 1: Extract & protect fenced code blocks
     const blocks = [];
     let html = markdown.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
         const placeholder = `%%BLOCK_${blocks.length}%%`;
@@ -433,15 +529,35 @@ function markdownToHtml(markdown) {
     html = out.join('\n');
 
     // —— Step 5: Inline formatting (applied last so block tags stay intact) ——
+    // Protect existing HTML tag attributes from inline regex
+    const protectedHtml = [];
+    html = html.replace(/(<[^>]+>)/g, (match) => {
+        const ph = `%%HTML_${protectedHtml.length}%%`;
+        protectedHtml.push(match);
+        return ph;
+    });
+
     html = html
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+        // Images (must come before links since ![ is a subset of [)
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="msg-image" loading="lazy">')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+    // Protect newly generated HTML tags from inline formatting
+    html = html.replace(/(<[^>]+>)/g, (match) => {
+        const ph = `%%HTML_${protectedHtml.length}%%`;
+        protectedHtml.push(match);
+        return ph;
+    });
+
+    html = html
         .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/__([^_]+)__/g, '<strong>$1</strong>')
         .replace(/\*([^\*]+)\*/g, '<em>$1</em>')
         .replace(/_([^_]+)_/g, '<em>$1</em>');
 
-    // —— Step 6: Restore protected blocks (code blocks, inline code) ——
+    // —— Step 6: Restore protected blocks (code blocks, inline code, HTML tags) ——
     html = html.replace(/%%BLOCK_(\d+)%%/g, (_, i) => blocks[parseInt(i)] || '');
+    html = html.replace(/%%HTML_(\d+)%%/g, (_, i) => protectedHtml[parseInt(i)] || '');
 
     return html;
 }
@@ -491,11 +607,11 @@ async function loadSessions() {
                     <div class="session-info-wrap">
                         <div class="session-name">${escapeHtml(session.name)}</div>
                         <div class="session-meta">
-                            ${session.message_count} messages • Updated ${session.updated_at}
-                            ${session.is_legacy ? '<span style="margin-left: 8px;">(legacy)</span>' : ''}
+                            ${session.message_count} 条消息 • 更新于 ${session.updated_at}
+                            ${session.is_legacy ? '<span style="margin-left: 8px;">(旧版)</span>' : ''}
                         </div>
                     </div>
-                    ${canDelete ? `<button class="session-delete" data-path="${escapeHtml(session.file_path)}" title="Delete session"><i class="fas fa-trash"></i></button>` : ''}
+                    ${canDelete ? `<button class="session-delete" data-path="${escapeHtml(session.file_path)}" title="删除会话"><i class="fas fa-trash"></i></button>` : ''}
                 `;
 
                 sessionEl.addEventListener('click', (e) => {
@@ -514,7 +630,7 @@ async function loadSessions() {
         }
     } catch (error) {
         console.error('Error loading sessions:', error);
-        sessionsList.innerHTML = '<p class="loading text-secondary">Error loading sessions</p>';
+        sessionsList.innerHTML = '<p class="loading text-secondary">加载会话失败</p>';
     }
 }
 
@@ -537,7 +653,7 @@ async function switchSession(filePath) {
         }
     } catch (error) {
         console.error('Error switching session:', error);
-        showToast('Error switching session', 'error');
+        showToast('切换会话失败', 'error');
     }
 }
 
@@ -566,7 +682,7 @@ async function createNewSession() {
         }
     } catch (error) {
         console.error('Error creating session:', error);
-        showToast('Error creating session', 'error');
+        showToast('创建会话失败', 'error');
     }
 }
 
@@ -575,7 +691,7 @@ async function createNewSession() {
 // ============================================================================
 
 async function deleteSession(filePath) {
-    if (!confirm('⚠️ Delete this session? All messages will be lost. Cancel to keep it.')) {
+    if (!confirm('⚠️ 删除此会话？所有消息将永久丢失。取消以保留。')) {
         return;
     }
 
@@ -591,11 +707,11 @@ async function deleteSession(filePath) {
             await updateStatus();
             await loadChatHistory();
         } else {
-            showToast('Error: ' + data.error, 'error');
+            showToast('错误：' + data.error, 'error');
         }
     } catch (error) {
         console.error('Error deleting session:', error);
-        showToast('Error deleting session', 'error');
+        showToast('删除会话失败', 'error');
     }
 }
 
@@ -617,7 +733,7 @@ async function loadHistory() {
             historyList.innerHTML = '';
 
             if (data.history.length === 0) {
-                historyList.innerHTML = '<p class="loading">No conversation history yet</p>';
+                historyList.innerHTML = '<p class="loading">暂无对话历史</p>';
                 return;
             }
 
@@ -625,7 +741,7 @@ async function loadHistory() {
                 const historyItemEl = document.createElement('div');
                 historyItemEl.className = `history-item ${msg.role}`;
                 
-                const roleText = msg.role === 'user' ? '👤 You' : '🤖 Assistant';
+                const roleText = msg.role === 'user' ? '👤 你' : '🤖 助手';
                 const truncated = msg.content.length > 150 ? msg.content.substring(0, 150) + '...' : msg.content;
                 
                 historyItemEl.innerHTML = `
@@ -638,12 +754,12 @@ async function loadHistory() {
         }
     } catch (error) {
         console.error('Error loading history:', error);
-        historyList.innerHTML = '<p class="loading text-secondary">Error loading history</p>';
+        historyList.innerHTML = '<p class="loading text-secondary">加载历史失败</p>';
     }
 }
 
 async function clearConversation() {
-    if (!confirm('⚠️ Clear all conversation history? This cannot be undone.')) {
+    if (!confirm('⚠️ 清除所有对话历史？此操作不可撤销。')) {
         return;
     }
 
@@ -661,7 +777,95 @@ async function clearConversation() {
         }
     } catch (error) {
         console.error('Error clearing history:', error);
-        showToast('Error clearing history', 'error');
+        showToast('清除历史失败', 'error');
+    }
+}
+
+// ============================================================================
+// Conversation Export
+// ============================================================================
+
+async function exportConversation() {
+    try {
+        const response = await fetch('/api/history');
+        const data = await response.json();
+
+        if (!data.success || data.history.length === 0) {
+            showToast('暂无对话可导出', 'warning');
+            return;
+        }
+
+        // Build Markdown content
+        let md = `# LectureCrewLLM 对话导出\n\n`;
+        md += `导出时间：${new Date().toLocaleString('zh-CN')}\n\n`;
+        md += `---\n\n`;
+
+        data.history.forEach((msg, i) => {
+            const roleLabel = msg.role === 'user' ? '## 👤 用户' : '## 🤖 助手';
+            md += `${roleLabel}\n\n`;
+            md += `${msg.content}\n\n`;
+            if (i < data.history.length - 1) {
+                md += `---\n\n`;
+            }
+        });
+
+        // Download
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `对话导出_${timestamp}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('✅ 对话已导出为 Markdown 文件', 'success');
+    } catch (error) {
+        console.error('Error exporting conversation:', error);
+        showToast('导出失败', 'error');
+    }
+}
+
+// ============================================================================
+// Conversation Export
+// ============================================================================
+
+async function exportConversation() {
+    try {
+        const response = await fetch('/api/history');
+        const data = await response.json();
+
+        if (!data.success || data.history.length === 0) {
+            showToast('暂无对话可导出', 'warning');
+            return;
+        }
+
+        // Build Markdown content
+        let md = `# LectureCrewLLM 对话导出\n\n`;
+        md += `导出时间：${new Date().toLocaleString('zh-CN')}\n\n`;
+        md += `---\n\n`;
+
+        data.history.forEach((msg, i) => {
+            const roleLabel = msg.role === 'user' ? '## 👤 用户' : '## 🤖 助手';
+            md += `${roleLabel}\n\n`;
+            md += `${msg.content}\n\n`;
+            if (i < data.history.length - 1) {
+                md += `---\n\n`;
+            }
+        });
+
+        // Download
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `对话导出_${timestamp}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('✅ 对话已导出为 Markdown 文件', 'success');
+    } catch (error) {
+        console.error('Error exporting conversation:', error);
+        showToast('导出失败', 'error');
     }
 }
 
@@ -675,12 +879,12 @@ async function loadKnowledge() {
         const data = await response.json();
 
         if (!data.success) {
-            knowledgeList.innerHTML = '<p class="knowledge-empty">Error loading files</p>';
+            knowledgeList.innerHTML = '<p class="knowledge-empty">加载文件失败</p>';
             return;
         }
 
         if (data.files.length === 0) {
-            knowledgeList.innerHTML = '<p class="knowledge-empty">No lecture files</p>';
+            knowledgeList.innerHTML = '<p class="knowledge-empty">暂无讲座文件</p>';
             return;
         }
 
@@ -708,7 +912,7 @@ async function loadKnowledge() {
         });
     } catch (error) {
         console.error('Error loading knowledge:', error);
-        knowledgeList.innerHTML = '<p class="knowledge-empty">Error loading files</p>';
+        knowledgeList.innerHTML = '<p class="knowledge-empty">加载文件失败</p>';
     }
 }
 
@@ -724,12 +928,12 @@ async function handleFileUpload(event) {
             formData.append('file', f);
             hasValid = true;
         } else {
-            showToast(`Skipped ${f.name}: only .pdf and .pptx allowed`, 'warning');
+            showToast(`已跳过 ${f.name}：仅支持 .pdf、.pptx 和 .docx`, 'warning');
         }
     }
 
     if (!hasValid) {
-        showToast('No valid files selected', 'warning');
+        showToast('未选择有效文件', 'warning');
         fileInput.value = '';
         return;
     }
@@ -744,18 +948,18 @@ async function handleFileUpload(event) {
             showToast(data.message, 'success');
             await loadKnowledge();
         } else {
-            showToast('Upload error: ' + data.error, 'error');
+            showToast('上传错误：' + data.error, 'error');
         }
     } catch (error) {
         console.error('Error uploading file:', error);
-        showToast('Upload failed', 'error');
+        showToast('上传失败', 'error');
     }
 
     fileInput.value = '';
 }
 
 async function deleteKnowledgeFile(filename) {
-    if (!confirm(`Delete "${filename}"? This will remove it from the vector store as well.`)) {
+    if (!confirm(`删除 "${filename}"？将从向量数据库中同时移除。`)) {
         return;
     }
 
@@ -768,34 +972,34 @@ async function deleteKnowledgeFile(filename) {
             showToast(data.message, 'success');
             await loadKnowledge();
         } else {
-            showToast('Delete error: ' + data.error, 'error');
+            showToast('删除错误：' + data.error, 'error');
         }
     } catch (error) {
         console.error('Error deleting file:', error);
-        showToast('Delete failed', 'error');
+        showToast('删除失败', 'error');
     }
 }
 
 async function reindexKnowledge() {
     btnReindex.disabled = true;
-    btnReindex.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Indexing...';
+    btnReindex.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 索引中...';
 
     try {
         const response = await fetch('/api/knowledge/reindex', { method: 'POST' });
         const data = await response.json();
         if (data.success) {
-            showToast('Reindexing complete', 'success');
+            showToast('重建索引完成', 'success');
             await loadKnowledge();
         } else {
-            showToast('Reindex error: ' + data.error, 'error');
+            showToast('重建索引错误：' + data.error, 'error');
         }
     } catch (error) {
         console.error('Error reindexing:', error);
-        showToast('Reindex failed', 'error');
+        showToast('重建索引失败', 'error');
     }
 
     btnReindex.disabled = false;
-    btnReindex.innerHTML = '<i class="fas fa-sync"></i> Reindex';
+    btnReindex.innerHTML = '<i class="fas fa-sync"></i> 重建索引';
 }
 
 // ============================================================================
@@ -817,7 +1021,7 @@ async function loadCacheStats() {
 }
 
 async function clearCache() {
-    if (!confirm('⚠️ Clear all cached answers? This will cause repeated questions to be re-processed.')) {
+    if (!confirm('⚠️ 清除所有缓存答案？重复的问题将被重新处理。')) {
         return;
     }
 
@@ -831,11 +1035,11 @@ async function clearCache() {
         if (data.success) {
             cacheCountEl.textContent = '0';
             cacheValidEl.textContent = '0';
-            showToast('✅ Cache cleared', 'success');
+            showToast('✅ 缓存已清除', 'success');
         }
     } catch (error) {
         console.error('Error clearing cache:', error);
-        showToast('Error clearing cache', 'error');
+        showToast('清除缓存失败', 'error');
     }
 }
 
@@ -911,7 +1115,7 @@ async function loadChatHistory() {
 
         // Render each message in history
         data.history.forEach(msg => {
-            addMessageToChat(msg.role, msg.content);
+            addMessageToChat(msg.role, msg.content, null, null, null);
         });
 
         // Scroll to bottom
