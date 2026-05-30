@@ -16,7 +16,7 @@ Manager Agent (Educational Manager)
 - **Output:** Bullet list of findings with source URLs
 
 ### Lecture Analyst
-- **Goal:** Synthesize Chinese lecture excerpts with English web research into a polished Markdown answer
+- **Goal:** Synthesize multi-modal lecture excerpts (text + image descriptions + tables) with web research into a polished English Markdown answer
 - **Input:** RAG retrieval results (pre-fetched) + Internet Researcher output + conversation history
 - **Output:** Well-structured English Markdown with citations
 
@@ -31,47 +31,69 @@ User Question
     │
     ├──→ Cache Check ──→ Hit? ──→ Return cached answer
     │
-    └──→ RAG Retrieval (ChromaDB)
+    └──→ Multi-Modal RAG Retrieval (ChromaDB)
+    │       │
+    │       ├── Text chunks (semantic)
+    │       ├── Image descriptions (BLIP-captioned)
+    │       └── Tables (Markdown)
+    │
+    └──→ Multi-Agent Crew
             │
-            └──→ Multi-Agent Crew
+            ├── 1. Internet Researcher (web search)
+            │
+            └── 2. Lecture Analyst (synthesis)
                     │
-                    ├── 1. Internet Researcher (web search)
-                    │
-                    └── 2. Lecture Analyst (synthesis)
-                            │
-                            └──→ Save to:
-                                 • Conversation history (JSON)
-                                 • Answer cache (JSON)
-                                 • Output file (Markdown)
+                    └──→ Save to:
+                         • Conversation history (JSON)
+                         • Answer cache (JSON)
+                         • Output file (Markdown)
 ```
 
-### Key Design Decisions
+## Multi-Modal RAG Pipeline
 
-**Why RAG runs before the crew (not inside an agent task):**
-
-RAG retrieval is a deterministic database query, not an LLM reasoning step. Running it before crew kickoff and injecting results directly into the Analyst's task context avoids wasting an agent turn on a non-reasoning operation. This is clearly documented in the Analyst's prompt — it knows the lecture excerpts come from pre-retrieved RAG results.
-
-**Why hierarchical process:**
-
-The Manager dynamically decides task execution order and delegation. This provides resilience: if the search agent returns an error string, the Analyst is instructed to ignore it and rely solely on lecture excerpts.
-
-## RAG Pipeline
+### Document Ingestion
 
 ```
-knowledge/*.pdf, *.pptx
+knowledge/*.pdf, *.pptx, *.docx
     │
-    ├── File hash check (skip unchanged)
+    ├── File hash check (SHA256, skip unchanged)
     │
-    ├── Text extraction (PyPDF2 / python-pptx)
+    ├── document_processor.py
+    │   ├── PDF:   PyMuPDF (text + images) + pdfplumber (tables)
+    │   ├── PPTX:  python-pptx (text + images + tables + group shapes)
+    │   └── DOCX:  python-docx (text + heading detection + images + tables)
     │
-    ├── Chunking (500 chars, 100 char overlap)
+    ├── Semantic chunking
+    │   ├── Split at heading boundaries (##, ###)
+    │   ├── Split at paragraph boundaries (double newline)
+    │   ├── Force-split oversize chunks at sentence boundaries (。！？.!?)
+    │   └── Merge sub-minimum chunks below 100 chars
     │
-    ├── Embedding (paraphrase-multilingual-MiniLM-L12-v2)
+    ├── Image captioning (BLIP)
+    │   └── image_captioner.py: Salesforce/blip-image-captioning-base
     │
-    └── ChromaDB persistent storage (cosine similarity)
+    ├── Table → Markdown conversion
+    │   └── GitHub-flavored Markdown table format
+    │
+    └── ChromaDB storage (cosine similarity)
+        ├── type: "text"    — semantically chunked paragraphs
+        ├── type: "image"   — BLIP descriptions + saved image files
+        └── type: "table"   — Markdown table strings
 ```
 
-The embedding model (`paraphrase-multilingual-MiniLM-L12-v2`) is chosen for Chinese-English cross-lingual retrieval — lectures are in Chinese, questions are in English.
+### Embedding Model
+
+`paraphrase-multilingual-MiniLM-L12-v2` — enables cross-lingual retrieval (Chinese lecture content → English queries).
+
+### Content Types in Retrieval
+
+| Type | Icon | Storage |
+|------|------|---------|
+| `text` | 📝 | Vectorized text chunk |
+| `image` | 🖼️ | BLIP caption text + image saved to `images/` |
+| `table` | 📊 | Markdown table string |
+
+Retrieval supports filtering by `content_type` parameter.
 
 ## Web UI Architecture
 
@@ -79,17 +101,22 @@ The embedding model (`paraphrase-multilingual-MiniLM-L12-v2`) is chosen for Chin
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| `GET` | `/api/status` | System status (session, cache, message count) |
-| `GET` | `/api/sessions` | List all conversation sessions |
-| `POST` | `/api/sessions` | Create new session |
-| `POST` | `/api/sessions/<path>` | Switch to a session |
-| `GET` | `/api/chat/task` | Get a task ID for SSE subscription |
-| `POST` | `/api/chat` | Send a message, trigger crew execution |
-| `GET` | `/api/chat/stream?task_id=` | SSE endpoint for progress updates |
+| `GET` | `/api/status` | System status |
+| `GET` | `/api/sessions` | List sessions |
+| `POST` | `/api/sessions` | Create session |
+| `POST` | `/api/sessions/<path>` | Switch session |
+| `DELETE` | `/api/sessions/<path>` | Delete session |
+| `GET` | `/api/chat/task` | Get task ID for SSE |
+| `POST` | `/api/chat` | Send message, trigger crew |
+| `GET` | `/api/chat/stream?task_id=` | SSE progress stream |
 | `GET` | `/api/history` | Get conversation history |
-| `DELETE` | `/api/history` | Clear conversation history |
+| `DELETE` | `/api/history` | Clear history |
 | `GET` | `/api/cache` | Cache statistics |
 | `DELETE` | `/api/cache` | Clear cache |
+| `GET` | `/api/knowledge` | List knowledge files |
+| `POST` | `/api/knowledge/upload` | Upload a document |
+| `DELETE` | `/api/knowledge/<filename>` | Delete a document + its index |
+| `POST` | `/api/knowledge/reindex` | Force reindex all files |
 
 ### SSE Progress Flow
 
@@ -112,7 +139,32 @@ Browser                          Flask Server
   │←────────── {response: "..."} ────┤  (chat response)
 ```
 
-The status tracker uses an in-memory `queue.Queue` per task. The SSE handler reads from the queue while the crew thread writes to it.
+## Document Processing Pipeline
+
+### Supported Formats
+
+| Format | Text | Images | Tables | Tool |
+|--------|------|--------|--------|------|
+| PDF | PyMuPDF | PyMuPDF extraction | pdfplumber | `_process_pdf()` |
+| PPTX | python-pptx | Shape images + group shapes | Shape tables | `_process_pptx()` |
+| DOCX | python-docx + heading detection | Inline images via relationships | Document tables | `_process_docx()` |
+
+### Semantic Chunking Rules
+
+1. Normalize line endings (`\r\n` → `\n`)
+2. Split at double newlines (paragraph boundaries)
+3. Treat `##`, `###` headings as hard boundaries
+4. Force-split paragraphs over 1200 chars at sentence boundaries (`。！？.!?`)
+5. Merge consecutive short paragraphs below 100 chars
+
+## Image Captioning
+
+Uses `Salesforce/blip-image-captioning-base` from Hugging Face transformers. Lazy-loaded on first use.
+
+- **Success:** `"[图片描述] a diagram of transformer architecture"`
+- **Fallback (model unavailable):** `"[图片：1920x1080 像素]"`
+
+Caption text is stored as a searchable document in ChromaDB (type: `image`). The original image is saved to `images/` and referenced via `image_path` metadata.
 
 ## Caching Strategy
 
@@ -121,8 +173,6 @@ The status tracker uses an in-memory `queue.Queue` per task. The SSE handler rea
 - **Storage:** JSON file (`cache/answer_cache.json`)
 - **Expiration:** Checked on read; expired entries removed lazily
 
-Limitation: exact string matching only. Semantically equivalent rephrasings ("What is BERT?" vs "Explain BERT") are treated as different questions.
-
 ## Error Handling
 
 | Failure Mode | Behavior |
@@ -130,4 +180,20 @@ Limitation: exact string matching only. Semantically equivalent rephrasings ("Wh
 | RAG retrieval fails | Warning logged; Analyst works with empty lecture context |
 | Web search fails | Google Search Tool returns error string; Analyst prompted to ignore errors and use lectures only |
 | DeepSeek API fails | Exception propagated to Web UI; user sees error toast; failed question removed from history |
+| BLIP model unavailable | Image captions fall back to dimension placeholders; indexing continues |
 | ChromaDB corrupted | Delete `chroma_db/` directory and restart to rebuild |
+| File upload (unsupported type) | 400 error with Chinese message listing supported formats |
+
+## Testing
+
+**70 tests across 7 modules** (`python -m pytest tests/ -v`):
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| `test_answer_cache.py` | 12 | Cache CRUD, persistence, case/punctuation/stop-word tolerance |
+| `test_conversation_manager.py` | 11 | Messages, history, context building, persistence |
+| `test_session_manager.py` | 10 | Session CRUD, legacy handling, labels |
+| `test_status_tracker.py` | 6 | Task lifecycle, updates, concurrent safety |
+| `test_local_file_tool.py` | 3 | Empty folder, path validation, filtering |
+| `test_rag.py` | 20 | Semantic chunking, table→Markdown, document dispatch, image captioning, vector store CRUD |
+| `test_web_api.py` | 11 | Flask endpoints, validation, page routes |

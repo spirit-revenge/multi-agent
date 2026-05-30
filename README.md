@@ -1,18 +1,19 @@
 # LectureCrewLLM
 
-Multi-agent lecture analysis system with RAG retrieval, web search, and interactive Web UI.
+Multi-agent lecture analysis system with **multi-modal RAG** (text + images + tables), web search, and interactive Web UI.
 
-Built with [CrewAI](https://github.com/crewAIInc/crewAI), ChromaDB, and Flask. Uses DeepSeek as the LLM and sentence-transformers for cross-lingual (Chinese-English) embeddings.
+Built with [CrewAI](https://github.com/crewAIInc/crewAI), ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-transformers for cross-lingual embeddings, and BLIP for image captioning.
 
 ## Features
 
 - **Multi-Agent Architecture** — Internet Researcher, Lecture Analyst, and Manager coordinated via CrewAI hierarchical process
-- **RAG Pipeline** — Semantic retrieval from lecture files (PDF/PPTX) with incremental indexing
+- **Multi-Modal RAG Pipeline** — Extracts text, images (BLIP-captioned), and tables (Markdown) from PDF/PPTX/DOCX files with semantic chunking
 - **Web Search Integration** — Google Programmable Search for supplementary information
 - **Real-Time Progress** — SSE streaming shows agent execution status in the Web UI
-- **Multi-Session Conversations** — Persistent conversation history with session switching
+- **Knowledge Management** — Upload, list, delete, and reindex lecture files via Web UI
+- **Multi-Session Conversations** — Persistent conversation history with session switching and deletion
 - **Answer Caching** — TTL-based cache (30-day default) avoids redundant LLM calls
-- **Graceful Degradation** — Web search failures don't block answer generation; system falls back to lecture content only
+- **Graceful Degradation** — Web search failures don't block answer generation; falls back to lecture content only
 
 ## Quick Start
 
@@ -34,12 +35,14 @@ cp .env.example .env
 # Edit .env with your API keys:
 #   DEEPSEEK_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID, FLASK_SECRET_KEY
 
-# 3. Install dependencies (choose one)
-pip install -r requirements.txt    # exact versions (recommended for reproducibility)
-# or
-pip install -e .                   # from pyproject.toml
+# 3. Install dependencies
+pip install -r requirements.txt       # exact versions (recommended)
+# or: pip install -e .                # from pyproject.toml
 
-# 4. Place lecture files (PDF/PPTX) in the knowledge/ folder
+# 4. Install optional test dependencies
+pip install -e ".[test]"              # adds pytest
+
+# 5. Place lecture files (PDF/PPTX/DOCX) in the knowledge/ folder
 mkdir -p knowledge
 ```
 
@@ -54,15 +57,23 @@ python web_ui.py
 python main.py
 ```
 
+### Run Tests
+
+```bash
+python -m pytest tests/ -v
+# 70 tests across 7 modules
+```
+
 ## Usage
 
 ### Web UI
 
-1. Place lecture files (`.pdf` / `.pptx`) in `knowledge/`
+1. Place lecture files (`.pdf` / `.pptx` / `.docx`) in `knowledge/` or upload via the Web UI
 2. Start the server and open `http://localhost:7860`
 3. Ask questions about your lectures
 4. Watch real-time agent progress: "Searching web..." → "Synthesizing answer..." → "Complete!"
-5. Switch between conversation sessions via the sidebar
+5. Manage files via the Knowledge panel: upload, delete, reindex
+6. Switch between conversation sessions via the sidebar
 
 ### CLI Commands
 
@@ -81,26 +92,40 @@ python main.py
 ```
 lecture_crewLLM/
 ├── main.py                      # CLI entry point + crew orchestration
-├── web_ui.py                    # Flask Web UI + REST API + SSE endpoint
+├── web_ui.py                    # Flask Web UI + REST API + SSE + Knowledge API
 ├── pyproject.toml               # Project metadata & dependencies
 ├── requirements.txt             # Locked dependency versions
 ├── .env.example                 # Environment variable template
 │
 ├── tools/
-│   ├── local_file_tool.py       # PDF/PPTX text extraction
-│   ├── rag_store.py             # ChromaDB vector store + RAG retrieval
+│   ├── __init__.py
+│   ├── local_file_tool.py       # Basic PDF/PPTX text extraction
+│   ├── document_processor.py    # Multi-format processor (PDF/PPTX/DOCX)
+│   │                            #   + semantic chunking + image & table extraction
+│   ├── image_captioner.py       # BLIP-based image description
+│   ├── rag_store.py             # Multi-modal ChromaDB vector store
 │   ├── conversation_manager.py  # Conversation history persistence
 │   ├── session_manager.py       # Multi-session creation & switching
 │   ├── answer_cache.py          # Question-answer cache with TTL
 │   ├── google_search_tool.py    # Google Programmable Search integration
 │   └── status_tracker.py        # In-memory SSE progress tracker
 │
+├── tests/
+│   ├── test_answer_cache.py     # Cache unit tests (12 tests)
+│   ├── test_conversation_manager.py  # Conversation tests (11 tests)
+│   ├── test_session_manager.py  # Session management tests (10 tests)
+│   ├── test_status_tracker.py   # SSE tracker tests (6 tests)
+│   ├── test_local_file_tool.py  # File reader tests (3 tests)
+│   ├── test_rag.py              # RAG + document processor tests (20 tests)
+│   └── test_web_api.py          # Flask API tests (11 tests)
+│
 ├── templates/index.html         # Web UI template
 ├── static/
 │   ├── style.css                # Stylesheet
 │   └── script.js                # Client-side JavaScript + EventSource SSE
 │
-├── knowledge/                   # ← Place lecture files here (PDF, PPTX)
+├── knowledge/                   # ← Place lecture files here (PDF, PPTX, DOCX)
+├── images/                      # Extracted images (auto-created)
 ├── conversations/sessions/      # Session JSON files (auto-created)
 ├── cache/                       # Answer cache (auto-created)
 ├── chroma_db/                   # Vector database (auto-created)
@@ -122,9 +147,9 @@ lecture_crewLLM/
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for:
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical documentation including:
 - Agent design and data flow
-- RAG pipeline details
+- Multi-modal RAG pipeline (text + images + tables)
 - SSE progress flow
 - API endpoint reference
 - Error handling strategy
@@ -139,3 +164,4 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for:
 | Port already in use | Change `WEB_UI_PORT` in `.env` |
 | Corrupted sessions | Delete `conversations/` directory |
 | Module import errors | Run `pip install -r requirements.txt` |
+| BLIP model issues | Image captions fall back to `[图片：WxH 像素]` placeholder |
