@@ -271,4 +271,16 @@ lecture_crewLLM/
 
 ---
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=spirit-revenge%2Fmulti-agent.git&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=spirit-revenge/multi-agent.git&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=spirit-revenge/multi-agent.git&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=spirit-revenge/multi-agent.git&type=date&legend=top-left" />
+ </picture>
+</a>
+
+---
+
 *最后更新：2026年5月*
