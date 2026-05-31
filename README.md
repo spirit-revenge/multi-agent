@@ -238,6 +238,9 @@ lecture_crewLLM/
 | **Cache similarity threshold** | Jaccard + coverage fusion, threshold 0.65 | Prevents false positive matches like "水原天气" ↔ "明天天气" |
 | **Web search persistence** | Store search results in RAG with type="web" | Similar future queries hit RAG instead of re-calling Tavily API |
 | **Model via env** | `LLM_MODEL` env var | Switch provider/model without code changes |
+| **Single-file indexing** | `index_file()` indexes one file without directory scan | Upload API: O(N)→O(1); skips SHA256 of every file in knowledge/ |
+| **Batch BLIP inference** | Pipeline batch mode (list of images) instead of sequential loop | 2-5× speedup for multi-image documents (e.g., PPTX with 10+ images) |
+| **Sidebar auto-refresh** | `loadCacheStats()` + `loadKnowledge()` after every mutation | Cache count and file list update in real-time without manual refresh |
 
 ---
 
@@ -279,6 +282,7 @@ lecture_crewLLM/
 | **Smart Routing** | Rule-based + LLM dual routing, Grounding Check, 3-tier similarity gate |
 | **Stability** | Image URL encoding, path traversal guard, filename sanitization, auto cache cleanup |
 | **Interaction** | History search (CLI `find` + Web UI sidebar), click-to-jump results, browser auto-location |
+| **Upload Pipeline** | `index_file()` single-file index + batch BLIP + sidebar auto-refresh | Upload O(N)→O(1), BLIP 2-5× faster, cache/knowledge panels update live |
 
 ---
 
