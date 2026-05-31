@@ -5,6 +5,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 env.bak/
 venv.bak/
@@ -25,7 +26,7 @@ cache/
 # Output files
 output/*.md
 
-# Temp / scratch files
+# Test / scratch files
 tests/a.py
 tests/temp_*.py
 CLAUDE.md

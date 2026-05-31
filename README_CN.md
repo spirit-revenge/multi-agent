@@ -2,22 +2,24 @@
 
 > [English](README.md) | [中文](README_CN.md)
 
-多智能体讲座分析系统 — **多模态 RAG**（文本+图片+表格）+ 联网搜索 + 交互式 Web UI
+**多智能体讲座分析系统** — 多模态 RAG（文本+图片+表格）+ 联网搜索 + 交互式 Web UI
 
-基于 [CrewAI](https://github.com/crewAIInc/crewAI)、ChromaDB 和 Flask 构建。使用 DeepSeek 作为 LLM，sentence-transformers 实现双语嵌入，BLIP 实现图片描述生成。
+基于 CrewAI、ChromaDB 和 Flask 构建。使用 DeepSeek 作为 LLM，sentence-transformers 实现跨语言嵌入，BLIP 实现图片描述生成。
 
 ---
 
 ## 功能特性
 
-- **多智能体架构** — 意图路由 → RAG 检索 → 相关性验证 → 分析师，4 个 Agent 协作
+- **多智能体协作** — 意图路由 → RAG 检索 → 相关性验证 → 分析师，智能编排流程
 - **多模态 RAG** — 从 PDF/PPTX/DOCX 中提取文本（语义分块）、图片（BLIP 描述）、表格（Markdown）
-- **联网搜索** — Google Programmable Search 获取补充信息，支持开关
-- **实时进度** — SSE 4 步进度条 + 计时器 + 轮播提示
-- **文件管理** — 通过 Web UI 上传、删除、重建索引
-- **多会话** — 持久化对话历史，支持切换、新建、删除
-- **智能缓存** — 30 天 TTL，支持标点容忍和停用词过滤
-- **优雅降级** — 联网搜索失败时自动回退到仅讲座内容
+- **联网搜索** — Tavily API 实时搜索，支持手动开关，自动缓存（1h TTL）
+- **智能缓存** — 答案缓存（30 天 TTL）+ 检索缓存 + 搜索缓存，三级缓存避免冗余调用
+- **SSE 实时进度** — 4 步进度条 + 计时器 + 轮播提示
+- **文件管理** — 上传、删除、重建索引，增量索引仅处理变更文件
+- **多会话管理** — 持久化对话历史，支持切换、新建、删除
+- **优雅降级** — 搜索失败时自动回退到仅讲座内容
+
+---
 
 ## 系统架构
 
@@ -25,32 +27,42 @@
 用户提问
     │
     ▼
-┌─ 缓存检查 ──────────────────────────┐
-│  命中 → 直接返回缓存答案            │
-│  未命中 → 继续                      │
-└─────────────────────────────────────┘
+┌─ 缓存检查 ──────────────────────────────────┐
+│  命中 → 直接返回（零 LLM 调用）               │
+│  未命中 → 继续                               │
+└──────────────────────────────────────────────┘
     │
     ▼
-┌─ Router Agent (意图路由) ───────────┐
-│  分类: lecture / web / hybrid       │
-│  → 决定走哪条 pipeline              │
-└─────────────────────────────────────┘
+┌─ 规则路由器（关键词匹配，零 LLM）─────────────┐
+│  → web 意图直接走搜索，无需 LLM               │
+│  → 不匹配 → 交 LLM Router                    │
+└──────────────────────────────────────────────┘
     │
-    ├── "lecture" ──→ RAG → Grounding Check → Analyst
+    ▼
+┌─ LLM Router ────────────────────────────────┐
+│  分类: lecture / web / hybrid / unknown      │
+└──────────────────────────────────────────────┘
     │
-    ├── "web" ──────→ 网络搜索 → Analyst
+    ├── "lecture" ──→ RAG → 相似度门控
+    │                       ├─ ≥0.82 → 直接使用（免 Guard）
+    │                       ├─ 0.55~0.82 → Grounding Check
+    │                       └─ ≤0.55 → 跳过
+    │                       │
+    │                       ▼
+    │                  Analyst 生成答案
     │
-    └── "hybrid" ───→ RAG + 搜索 → Grounding → Analyst
+    ├── "web" ────────→ Tavily 搜索 → Analyst
+    │
+    └── "hybrid" ─────→ RAG + 搜索 → Analyst
 ```
 
 ### Agent 角色
 
-| Agent | 职责 | LLM 调用 |
-|-------|------|---------|
-| 🎯 **意图路由器 (Router)** | 判断问题类别：讲座/网络/混合 | 1 次短调用（~50 tokens） |
-| 🔍 **网络研究员 (Searcher)** | Google 搜索补充信息 | 1 次调用 |
-| ✅ **相关性验证员 (Grounding)** | 判断 RAG 结果是否与问题相关 | 1 次短调用 |
-| 📝 **讲座分析师 (Analyst)** | 综合信息生成 Markdown 答案 | 1 次调用 |
+| Agent | 职责 | Token |
+|-------|------|-------|
+| **🎯 意图路由器** | 判断问题类别 lecture/web/hybrid/unknown | ~50 |
+| **✅ 相关性验证员** | 边界案例判断 RAG 结果是否语义相关 | ~200 |
+| **📝 讲座分析师** | 综合 RAG + 搜索信息，生成中文 Markdown 回答 | ~1000-2000 |
 
 ### 多模态 RAG 管道
 
@@ -58,19 +70,18 @@
 knowledge/*.pdf / *.pptx / *.docx
     │
     ├── DocumentProcessor
-    │   ├── extract_text()    → 语义分块（段落/标题/句子边界）
-    │   ├── extract_images()  → PIL Image → BLIP 描述 → 存文件
-    │   └── extract_tables()  → 转为 Markdown 表格
+    │   ├── extract_text()    → 语义分块（段落/标题边界，100-1200 字符）
+    │   ├── extract_images()  → PIL Image → BLIP 描述
+    │   └── extract_tables()  → Markdown 表格
     │
-    └── ChromaDB
-        ├── document: 文本/图片描述/表格 Markdown
-        ├── metadata:
-        │   ├── type:       "text" | "image" | "table"
-        │   ├── source:     来源文件名
-        │   ├── indexed_at: 索引时间戳
-        │   └── image_path: 图片路径
-        └── vector: 384 维嵌入
+    └── ChromaDB（384 维嵌入，paraphrase-multilingual-MiniLM-L12-v2）
+            │
+            余弦相似度 ANN → BM25 混合重排序 → Top-K
+            │
+            相似度阈值三档门控（≥0.82 / 0.55~0.82 / ≤0.55）
 ```
+
+---
 
 ## 快速开始
 
@@ -78,67 +89,80 @@ knowledge/*.pdf / *.pptx / *.docx
 
 - Python 3.11+
 - DeepSeek API Key — [platform.deepseek.com](https://platform.deepseek.com/api_keys)
-- Google Programmable Search — [programmablesearchengine.google.com](https://programmablesearchengine.google.com)
+- Tavily API Key — [app.tavily.com](https://app.tavily.com)（联网搜索需要）
 
 ### 安装
 
 ```bash
-# 1. 克隆项目
 cd lecture_crewLLM
-
-# 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，填入:
-#   DEEPSEEK_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID, FLASK_SECRET_KEY
-
-# 3. 安装依赖
+# 编辑 .env 填入 DEEPSEEK_API_KEY、TAVILY_API_KEY、FLASK_SECRET_KEY
 pip install -r requirements.txt
-
-# 4. 安装测试依赖（可选）
-pip install -e ".[test]"
-
-# 5. 将讲座文件放入 knowledge/ 目录
 mkdir -p knowledge
 ```
 
 ### 启动
 
 ```bash
-# Web UI（推荐）
-python web_ui.py
-# 访问 http://localhost:7860
-
-# CLI 模式
-python main.py
+python web_ui.py     # Web UI（推荐），访问 http://localhost:7860
+python main.py       # CLI 模式
 ```
 
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v
-# 70 个测试，覆盖 7 个模块
+python -m pytest tests/ -v    # 83 个测试，全部通过
 ```
 
-## Web UI 布局
+---
+
+## 项目结构
 
 ```
-┌──────────────┬──────────────────────────────────┐
-│  侧边栏       │  主聊天区                        │
-│              │  ┌──────────────────────────┐    │
-│  📚 对话      │  │ 历史消息自动显示在主界面  │    │
-│  ├ 当前会话   │  │ 支持图片和表格渲染        │    │
-│  └ 切换/创建  │  └──────────────────────────┘    │
-│              │                                  │
-│  📁 讲座文件   │  ┌────────────────────────┐     │
-│  ├ 文件列表   │  │ 输入框     [发送] [🌐联网] │   │
-│  ├ 上传/删除  │  └────────────────────────┘     │
-│  └ 重建索引   │                                  │
-│              │  加载时显示: 4步进度 + 计时器      │
-│  ⚡ 缓存      │                                  │
-│  🎛️ 控制      │                                  │
-│  └ 导出对话   │                                  │
-└──────────────┴──────────────────────────────────┘
+lecture_crewLLM/
+├── main.py                          # CLI 入口 + Agent 编排
+├── web_ui.py                        # Flask Web UI + REST API + SSE
+├── requirements.txt                 # 依赖锁定
+├── .env.example                     # 环境变量模板
+│
+├── tools/
+│   ├── rag_store.py                 # ChromaDB + BM25 混合检索
+│   ├── document_processor.py        # 文档解析 + 语义分块
+│   ├── image_captioner.py           # BLIP 图片描述
+│   ├── conversation_manager.py      # 对话历史（≤300 tokens 摘要）
+│   ├── session_manager.py           # 多会话管理
+│   ├── answer_cache.py              # 答案缓存（30 天 TTL）
+│   ├── google_search_tool.py        # Google 搜索集成
+│   ├── local_file_tool.py           # 文件读取（CrewAI Tool）
+│   └── status_tracker.py            # SSE 进度追踪
+│
+├── tests/                           # 83 个测试
+├── templates/index.html             # Web UI 模板
+├── static/                          # CSS + JS
+│
+├── knowledge/                       # 讲座文件
+├── images/                          # 提取的图片
+├── chroma_db/                       # 向量数据库
+├── conversations/sessions/          # 对话数据
+├── cache/                           # 缓存
+└── output/                          # 答案导出
 ```
+
+---
+
+## 配置
+
+| 变量 | 必填 | 说明 | 默认 |
+|------|------|------|------|
+| `DEEPSEEK_API_KEY` | 是 | DeepSeek API 密钥 | — |
+| `TAVILY_API_KEY` | 否 | Tavily 搜索密钥 | — |
+| `FLASK_SECRET_KEY` | 是* | Flask 会话密钥 | — |
+| `WEB_UI_PORT` | 否 | Web UI 端口 | `7860` |
+| `FLASK_DEBUG` | 否 | 调试模式 | `0` |
+
+\* Web UI 必需
+
+---
 
 ## API 端点
 
@@ -147,81 +171,66 @@ python -m pytest tests/ -v
 | GET | `/api/status` | 系统状态 |
 | GET/POST | `/api/sessions` | 会话列表/创建 |
 | POST/DELETE | `/api/sessions/<path>` | 切换/删除会话 |
+| GET | `/api/chat/task` | SSE task ID |
 | POST | `/api/chat` | 发送消息 |
 | GET | `/api/chat/stream` | SSE 进度流 |
 | GET/DELETE | `/api/history` | 对话历史 |
-| GET | `/api/knowledge` | 文件列表 |
-| POST/DELETE | `/api/knowledge/*` | 上传/删除/重建索引 |
-| GET/DELETE | `/api/cache` | 缓存统计/清除 |
+| GET/POST/DELETE | `/api/knowledge/*` | 文件管理 |
+| GET/DELETE | `/api/cache` | 缓存 |
 | GET | `/images/<filename>` | 图片文件 |
 
-## 配置
+---
 
-| 变量 | 必填 | 说明 |
+## 关键设计决策
+
+| 决策 | 方案 | 理由 |
 |------|------|------|
-| `DEEPSEEK_API_KEY` | 是 | DeepSeek API 密钥 |
-| `GOOGLE_API_KEY` | 是 | Google Cloud API 密钥 |
-| `GOOGLE_CSE_ID` | 是 | Google Custom Search Engine ID |
-| `FLASK_SECRET_KEY` | 是* | Flask 会话密钥 |
-| `WEB_UI_PORT` | 否 | Web UI 端口（默认: 7860） |
-| `FLASK_DEBUG` | 否 | 调试模式（默认: 0） |
+| **Sequential 替代 Hierarchical** | Pipeline 路由→验证→分析 | Hierarchical 多 3 次 Manager 调用（~24s），Sequential 仅 2-3 次（~8s） |
+| **图片存为文字描述** | BLIP 描述 → 向量化 | 避免多模态嵌入模型，384 维即可检索 |
+| **语义分块** | 段落/标题边界，100-1200 字符 | 尊重文档结构而非固定长度切割 |
+| **移除 CrossEncoder** | BM25 + 嵌入相似度融合（70/30） | 省 1-2s/次查询，BM25 补充统计匹配已足够 |
+| **阈值门控** | ≥0.82 直接用 / 0.55-0.82 Guard / ≤0.55 跳过 | 减少不必要的 Guard LLM 调用 |
+| **双路由** | 规则匹配（关键词）→ LLM 兜底 | 天气/新闻等明确问题零 LLM 路由成本 |
+| **缓存归一化** | 去标点+排序+停用词过滤 | "什么是 BERT" ≡ "BERT 是什么" |
 
-\* Web UI 必需
+---
 
-## 项目结构
+## 测试覆盖（83 个）
 
-```
-lecture_crewLLM/
-├── main.py                      # CLI 入口 + Agent 编排
-├── web_ui.py                    # Flask Web UI + API + SSE
-├── pyproject.toml               # 项目元数据
-├── requirements.txt             # 依赖锁定
-├── .env.example                 # 环境变量模板
-│
-├── tools/
-│   ├── document_processor.py    # 文档解析（PDF/PPTX/DOCX）
-│   ├── image_captioner.py       # BLIP 图片描述
-│   ├── rag_store.py             # ChromaDB 向量存储
-│   ├── conversation_manager.py  # 对话历史
-│   ├── session_manager.py       # 多会话管理
-│   ├── answer_cache.py          # 答案缓存
-│   ├── google_search_tool.py    # Google 搜索
-│   ├── local_file_tool.py       # 文件读取（CrewAI Tool）
-│   └── status_tracker.py        # SSE 进度追踪
-│
-├── tests/                       # 70+ 测试
-├── templates/index.html         # Web UI 模板
-├── static/
-│   ├── style.css
-│   └── script.js
-│
-├── knowledge/                   # 讲座文件
-├── images/                      # 提取的图片
-├── chroma_db/                   # 向量数据库
-├── conversations/               # 对话数据
-└── cache/                       # 答案缓存
-```
+| 模块 | 数量 |
+|------|------|
+| `test_rag.py` | 31 |
+| `test_answer_cache.py` | 12 |
+| `test_conversation_manager.py` | 11 |
+| `test_session_manager.py` | 10 |
+| `test_web_api.py` | 11 |
+| `test_status_tracker.py` | 6 |
+| `test_local_file_tool.py` | 3 |
+
+---
 
 ## 常见问题
 
 | 问题 | 解决 |
 |------|------|
 | 向量库错误 | `rm -rf chroma_db/` 后重启重建索引 |
-| API Key 错误 | 检查 `.env` 中的四个密钥 |
+| API Key 错误 | 检查 `.env` 中的密钥 |
 | 端口占用 | 修改 `WEB_UI_PORT` |
+| BLIP 模型问题 | 回退为 `[图片：WxH 像素]` 占位符 |
 | 对话文件损坏 | 删除 `conversations/` 目录 |
-| 模块导入错误 | 运行 `pip install -r requirements.txt` |
 
-## 关键设计决策
+---
 
-| 决策 | 理由 |
+## 开发历程
+
+| 阶段 | 内容 |
 |------|------|
-| **Sequential 替代 Hierarchical** | Hierarchical 多 Manager 3 次调用（~24s），Sequential 仅 2 次（~12s） |
-| **图片存为文字描述** | 用 BLIP 生成描述文本，避免多模态嵌入模型 |
-| **语义分块** | 按段落/标题边界而非固定 500 字符 |
-| **Grounding Check** | LLM 验证 RAG 结果相关性，防止无关上下文污染回答 |
-| **Router Agent** | 预处理意图，天气类问题完全跳过 RAG |
-| **缓存归一化** | 去标点+停用词+排序 token，"What is BERT?" ≡ "BERT" |
+| **基础架构** | CrewAI + ChromaDB + DeepSeek + Flask + CLI |
+| **RAG 增强** | 语义分块、BLIP 图片描述、表格 MD、DOCX 支持 |
+| **性能优化** | Sequential 取代 Hierarchical、移除 CrossEncoder（省 1-2s/次）、RAG 上下文减半（4000→2000 字）、多级缓存 |
+| **体验优化** | 中文界面、SSE 4 步进度、实时计时器、轮播提示 |
+| **智能路由** | 规则 + LLM 双路由、Grounding Check 语义验证、三档阈值门控 |
+| **稳定性** | 图片 URL 编码、路径穿越防护、缓存自动清理 |
 
 ---
 
