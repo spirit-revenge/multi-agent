@@ -27,38 +27,7 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 
 ### Request Flow
 
-```
-User Question
-    │
-    ▼
-┌─ Cache Check ─────────────────────────────┐
-│  Hit → return cached answer (zero LLM)    │
-│  Miss → continue                          │
-└───────────────────────────────────────────┘
-    │
-    ▼
-┌─ Rule Router (fast path) ────────────────┐
-│  Keyword match → web intent (zero LLM)    │
-│  No match → LLM Router                    │
-└───────────────────────────────────────────┘
-    │
-    ▼
-┌─ LLM Router (intent classification) ─────┐
-│  lecture / web / hybrid / unknown         │
-└───────────────────────────────────────────┘
-    │
-    ├── "lecture" → RAG → similarity gate
-    │                    ├─ ≥0.82 → use directly (skip Guard)
-    │                    ├─ 0.55~0.82 → Grounding Check
-    │                    └─ ≤0.55 → skip (no result)
-    │                    │
-    │                    ▼
-    │               Analyst generates answer
-    │
-    ├── "web" ────────→ Tavily search → Analyst
-    │
-    └── "hybrid" ─────→ RAG + search → Analyst
-```
+![Request Processing Pipeline](picts/request_flow.svg)
 
 ### Agent Roles
 
@@ -70,28 +39,7 @@ User Question
 
 ### Multi-Modal RAG Pipeline
 
-```
-knowledge/*.pdf / *.pptx / *.docx
-    │
-    ├── DocumentProcessor
-    │   ├── extract_text()    → semantic chunks (paragraph/heading boundaries, 100-1200 chars)
-    │   ├── extract_images()  → PIL Image → BLIP caption → store
-    │   └── extract_tables()  → Markdown table string
-    │
-    └── ChromaDB (local persistence)
-        ├── document: text / image caption / table Markdown
-        ├── metadata:
-        │   ├── type:       "text" | "image" | "table"
-        │   ├── source:     source filename
-        │   └── indexed_at: timestamp
-        └── vector: 384-dim (paraphrase-multilingual-MiniLM-L12-v2)
-                │
-                ▼
-        Cosine ANN search → BM25 hybrid re-rank → Top-K
-                │
-                ▼
-        Similarity gate (≥0.82 skip Guard, ≤0.55 skip entirely)
-```
+![RAG Pipeline](picts/rag_pipeline.svg)
 
 ### Similarity Gate
 
@@ -136,7 +84,7 @@ cd lecture_crewLLM
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env: DEEPSEEK_API_KEY, TAVILY_API_KEY, FLASK_SECRET_KEY
+# Edit .env with your API keys: DEEPSEEK_API_KEY, TAVILY_API_KEY, FLASK_SECRET_KEY
 
 # 3. Install dependencies
 pip install -r requirements.txt
@@ -204,7 +152,10 @@ lecture_crewLLM/
 ├── chroma_db/                   # ChromaDB persistence (auto-created)
 ├── conversations/sessions/      # Session files (auto-created)
 ├── cache/                       # Answer/retrieval/search caches (auto-created)
-└── output/                      # Timestamped answer exports (auto-created)
+├── output/                      # Timestamped answer exports (auto-created)
+└── picts/                       # SVG diagrams
+    ├── request_flow.svg
+    └── rag_pipeline.svg
 ```
 
 ---
@@ -214,7 +165,7 @@ lecture_crewLLM/
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
 | `DEEPSEEK_API_KEY` | Yes | DeepSeek API key | — |
-| `TAVILY_API_KEY` | No | Tavily search key (omit if not using web search) | — |
+| `TAVILY_API_KEY` | No | Tavily search API key (omit if not using web search) | — |
 | `FLASK_SECRET_KEY` | Yes* | Flask session signing key. Generate: `python -c "import secrets; print(secrets.token_hex(32))"` | — |
 | `WEB_UI_PORT` | No | Web UI port | `7860` |
 | `FLASK_DEBUG` | No | Debug mode | `0` |

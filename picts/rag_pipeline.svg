@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 780" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <defs>
+    <linearGradient id="docGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#764ba2"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="imgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="tableGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="chromaGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+    <linearGradient id="queryGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="720" height="780" rx="16" fill="#f8fafc"/>
+
+  <!-- Title -->
+  <text x="360" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">Multi-Modal RAG Pipeline</text>
+
+  <!-- ====== INPUT FILES ====== -->
+  <rect x="220" y="56" width="280" height="42" rx="10" fill="url(#docGrad)" filter="url(#shadow)"/>
+  <text x="360" y="82" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">knowledge/*.pdf / *.pptx / *.docx</text>
+
+  <!-- Arrow down -->
+  <line x1="360" y1="98" x2="360" y2="128" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== DOCUMENT PROCESSOR ====== -->
+  <rect x="220" y="130" width="280" height="36" rx="8" fill="#475569" filter="url(#shadow)"/>
+  <text x="360" y="153" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">DocumentProcessor</text>
+
+  <!-- Three branches -->
+  <path d="M 260 166 L 260 200 L 130 200 L 130 218" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 360 166 L 360 218" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 460 166 L 460 200 L 590 200 L 590 218" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Text extraction -->
+  <rect x="60" y="220" width="140" height="80" rx="10" fill="url(#textGrad)" filter="url(#shadow)"/>
+  <text x="130" y="248" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">extract_text()</text>
+  <line x1="80" y1="258" x2="180" y2="258" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+  <text x="130" y="276" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">Semantic chunking</text>
+  <text x="130" y="292" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.7)">Paragraph / heading boundaries</text>
+
+  <!-- Image extraction -->
+  <rect x="290" y="220" width="140" height="80" rx="10" fill="url(#imgGrad)" filter="url(#shadow)"/>
+  <text x="360" y="248" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">extract_images()</text>
+  <line x1="310" y1="258" x2="410" y2="258" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+  <text x="360" y="276" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">PIL Image → BLIP caption</text>
+  <text x="360" y="292" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.7)">"[Image] a diagram of ..."</text>
+
+  <!-- Table extraction -->
+  <rect x="520" y="220" width="140" height="80" rx="10" fill="url(#tableGrad)" filter="url(#shadow)"/>
+  <text x="590" y="248" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">extract_tables()</text>
+  <line x1="540" y1="258" x2="640" y2="258" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+  <text x="590" y="276" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">Convert to Markdown</text>
+  <text x="590" y="292" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.7)">| A | B | → table string</text>
+
+  <!-- Merge arrows -->
+  <path d="M 130 300 L 130 330 L 360 330 L 360 348" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 360 300 L 360 348" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 590 300 L 590 330 L 360 330" stroke="#64748b" stroke-width="2" fill="none"/>
+
+  <!-- ====== CHROMADB ====== -->
+  <rect x="210" y="350" width="300" height="90" rx="10" fill="url(#chromaGrad)" filter="url(#shadow)"/>
+  <text x="360" y="376" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">ChromaDB</text>
+  <text x="360" y="396" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.7)">Local Persistence</text>
+
+  <!-- Metadata labels -->
+  <rect x="230" y="406" width="80" height="22" rx="4" fill="#334155"/>
+  <text x="270" y="421" text-anchor="middle" font-size="10" fill="#94a3b8">type: text</text>
+  <rect x="320" y="406" width="85" height="22" rx="4" fill="#334155"/>
+  <text x="362" y="421" text-anchor="middle" font-size="10" fill="#94a3b8">type: image</text>
+  <rect x="415" y="406" width="85" height="22" rx="4" fill="#334155"/>
+  <text x="457" y="421" text-anchor="middle" font-size="10" fill="#94a3b8">type: table</text>
+
+  <!-- Embedding label -->
+  <text x="360" y="455" text-anchor="middle" font-size="10" fill="#64748b">384-dim vector (paraphrase-multilingual-MiniLM-L12-v2)</text>
+
+  <!-- Arrow down -->
+  <line x1="360" y1="458" x2="360" y2="488" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== RETRIEVAL FLOW ====== -->
+  <rect x="220" y="490" width="280" height="36" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="360" y="513" text-anchor="middle" font-size="13" font-weight="600" fill="#475569">Cosine Similarity ANN Search</text>
+
+  <!-- Arrow down -->
+  <line x1="360" y1="526" x2="360" y2="548" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="220" y="550" width="280" height="36" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="360" y="573" text-anchor="middle" font-size="13" font-weight="600" fill="#475569">BM25 Hybrid Re-rank (70/30)</text>
+
+  <!-- Arrow down -->
+  <line x1="360" y1="586" x2="360" y2="608" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="220" y="610" width="280" height="36" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="360" y="633" text-anchor="middle" font-size="13" font-weight="600" fill="#475569">Top-K Results</text>
+
+  <!-- Arrow down -->
+  <line x1="360" y1="646" x2="360" y2="668" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Similarity Gate -->
+  <rect x="220" y="670" width="280" height="48" rx="10" fill="#8b5cf6" filter="url(#shadow)"/>
+  <text x="360" y="692" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">Similarity Gate</text>
+  <text x="360" y="710" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.8)">≥0.82 skip Guard | 0.55-0.82 Guard LLM | ≤0.55 skip</text>
+
+  <!-- Legend -->
+  <rect x="20" y="735" width="680" height="30" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="40" y="754" font-size="11" fill="#475569">
+    <tspan font-weight="700" fill="#1e293b">Optimizations:</tspan>
+    <tspan dx="10">CrossEncoder removed (saves 1-2s)</tspan>
+    <tspan dx="10" fill="#8b5cf6">|</tspan>
+    <tspan dx="10">No multi-modal embedding needed (BLIP caption → text vector)</tspan>
+    <tspan dx="10" fill="#8b5cf6">|</tspan>
+    <tspan dx="10">Incremental indexing (SHA256 hash, only changed files)</tspan>
+  </text>
+</svg>

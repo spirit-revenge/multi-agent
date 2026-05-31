@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 960" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <defs>
+    <linearGradient id="header" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#764ba2"/>
+    </linearGradient>
+    <linearGradient id="cache" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="router" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="analyst" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="gate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="720" height="960" rx="16" fill="#f8fafc"/>
+
+  <!-- Title -->
+  <text x="360" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">Request Processing Pipeline</text>
+
+  <!-- ====== 1. USER QUERY ====== -->
+  <rect x="260" y="56" width="200" height="44" rx="22" fill="url(#header)" filter="url(#shadow)"/>
+  <text x="360" y="83" text-anchor="middle" font-size="15" font-weight="600" fill="#fff">User Question</text>
+
+  <!-- Arrow -->
+  <line x1="360" y1="100" x2="360" y2="130" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== 2. CACHE CHECK ====== -->
+  <rect x="235" y="132" width="250" height="48" rx="10" fill="url(#cache)" filter="url(#shadow)"/>
+  <text x="360" y="152" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">Cache Check</text>
+  <text x="360" y="170" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">Exact hash + token similarity</text>
+
+  <!-- Cache HIT → Return -->
+  <path d="M 485 156 L 560 156 L 560 82 L 500 82" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#arrowGreen)"/>
+  <rect x="502" y="64" width="100" height="36" rx="8" fill="#d1fae5" stroke="#10b981" stroke-width="1.5"/>
+  <text x="552" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="#059669">Return (0 LLM)</text>
+
+  <!-- Cache MISS → Continue -->
+  <line x1="360" y1="180" x2="360" y2="210" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== 3. RULE ROUTER ====== -->
+  <rect x="235" y="212" width="250" height="48" rx="10" fill="url(#router)" filter="url(#shadow)"/>
+  <text x="360" y="232" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">Rule Router</text>
+  <text x="360" y="250" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">Weather / News / Stock keywords</text>
+
+  <!-- Rule matched → "web" -->
+  <path d="M 485 236 L 560 236 L 560 290 L 510 290" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <rect x="460" y="216" width="24" height="16" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+  <text x="472" y="228" text-anchor="middle" font-size="9" font-weight="700" fill="#d97706">✓</text>
+
+  <!-- No match → LLM Router -->
+  <line x1="360" y1="260" x2="360" y2="290" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== 4. LLM ROUTER ====== -->
+  <rect x="220" y="292" width="280" height="48" rx="10" fill="#475569" filter="url(#shadow)"/>
+  <text x="360" y="312" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">LLM Router</text>
+  <text x="360" y="330" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.7)">Classify: lecture / web / hybrid / unknown</text>
+
+  <!-- Three branches from LLM Router -->
+  <!-- Left: lecture -->
+  <path d="M 260 340 L 260 390 L 200 390 L 200 400" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <!-- Center: web -->
+  <path d="M 360 340 L 360 400" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <!-- Right: hybrid -->
+  <path d="M 460 340 L 460 390 L 520 390 L 520 400" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Branch labels -->
+  <rect x="130" y="362" width="140" height="26" rx="6" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+  <text x="200" y="380" text-anchor="middle" font-size="12" font-weight="700" fill="#4f46e5">lecture</text>
+  <rect x="297" y="362" width="126" height="26" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+  <text x="360" y="380" text-anchor="middle" font-size="12" font-weight="700" fill="#d97706">web</text>
+  <rect x="450" y="362" width="140" height="26" rx="6" fill="#d1fae5" stroke="#10b981" stroke-width="1"/>
+  <text x="520" y="380" text-anchor="middle" font-size="12" font-weight="700" fill="#059669">hybrid</text>
+
+  <!-- ====== LECTURE PATH ====== -->
+  <rect x="110" y="402" width="180" height="44" rx="10" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="200" y="420" text-anchor="middle" font-size="13" font-weight="600" fill="#4f46e5">RAG Retrieval</text>
+  <text x="200" y="438" text-anchor="middle" font-size="10" fill="#6366f1">ChromaDB + BM25</text>
+
+  <!-- Arrow to similarity gate -->
+  <line x1="200" y1="446" x2="200" y2="475" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Similarity Gate -->
+  <rect x="90" y="477" width="220" height="56" rx="10" fill="url(#gate)" filter="url(#shadow)"/>
+  <text x="200" y="497" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Similarity Gate</text>
+  <text x="200" y="514" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)">≥0.82 → skip Guard | 0.55-0.82 → Guard | ≤0.55 → skip</text>
+
+  <!-- Guard branch -->
+  <rect x="55" y="546" width="120" height="30" rx="6" fill="#f3e8ff" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="115" y="565" text-anchor="middle" font-size="11" font-weight="600" fill="#7c3aed">0.55-0.82: Guard LLM</text>
+
+  <!-- Arrow from gate down -->
+  <line x1="200" y1="533" x2="200" y2="565" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="200" y1="565" x2="115" y2="565" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Arrow down to analyst -->
+  <line x1="200" y1="585" x2="200" y2="620" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== WEB PATH ====== -->
+  <rect x="285" y="402" width="150" height="44" rx="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="360" y="420" text-anchor="middle" font-size="13" font-weight="600" fill="#d97706">Tavily Search</text>
+  <text x="360" y="438" text-anchor="middle" font-size="10" fill="#b45309">with 1h cache</text>
+
+  <!-- Arrow down -->
+  <line x1="360" y1="446" x2="360" y2="540" stroke="#64748b" stroke-width="2"/>
+
+  <!-- Merge to analyst -->
+  <path d="M 360 540 L 360 600 L 280 600 L 280 620" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ====== HYBRID PATH ====== -->
+  <rect x="450" y="402" width="180" height="44" rx="10" fill="#d1fae5" stroke="#10b981" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="540" y="420" text-anchor="middle" font-size="13" font-weight="600" fill="#059669">RAG + Search</text>
+  <text x="540" y="438" text-anchor="middle" font-size="10" fill="#047857">Both pipelines</text>
+
+  <!-- Arrow down to merge -->
+  <path d="M 540 446 L 540 600 L 280 600 L 280 620" stroke="#64748b" stroke-width="2" fill="none"/>
+
+  <!-- ====== ANALYST ====== -->
+  <rect x="180" y="622" width="200" height="56" rx="10" fill="url(#analyst)" filter="url(#shadow)"/>
+  <text x="280" y="644" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">Analyst</text>
+  <text x="280" y="666" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">Synthesize → Chinese Markdown</text>
+
+  <!-- Arrow down to answer -->
+  <line x1="280" y1="678" x2="280" y2="710" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Answer -->
+  <rect x="190" y="712" width="180" height="44" rx="22" fill="#1e293b" filter="url(#shadow)"/>
+  <text x="280" y="740" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">Answer</text>
+
+  <!-- SSE Label -->
+  <rect x="460" y="680" width="200" height="42" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="560" y="698" text-anchor="middle" font-size="12" font-weight="600" fill="#475569">SSE Real-Time Progress</text>
+  <text x="560" y="714" text-anchor="middle" font-size="10" fill="#94a3b8">4 steps: routing → rag → search → generate</text>
+  <path d="M 460 701 L 382 701" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Legend -->
+  <rect x="20" y="780" width="680" height="85" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="40" y="804" font-size="13" font-weight="700" fill="#1e293b">Optimizations</text>
+
+  <rect x="40" y="816" width="14" height="14" rx="3" fill="#10b981"/>
+  <text x="62" y="828" font-size="11" fill="#475569">3-tier cache: answer (30d TTL) + retrieval + search (1h TTL)</text>
+
+  <rect x="40" y="838" width="14" height="14" rx="3" fill="#8b5cf6"/>
+  <text x="62" y="850" font-size="11" fill="#475569">Similarity gate skips Guard LLM for high/low confidence (saves ~2s)</text>
+
+  <rect x="360" y="816" width="14" height="14" rx="3" fill="#f59e0b"/>
+  <text x="382" y="828" font-size="11" fill="#475569">Rule router: keyword match → zero LLM cost</text>
+
+  <rect x="360" y="838" width="14" height="14" rx="3" fill="#64748b"/>
+  <text x="382" y="850" font-size="11" fill="#475569">2-3 LLM calls total (vs 5 in hierarchical mode)</text>
+</svg>

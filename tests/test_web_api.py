@@ -5,8 +5,6 @@ import pytest
 
 # Set required env vars before importing web_ui
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
-os.environ.setdefault("GOOGLE_API_KEY", "test-key")
-os.environ.setdefault("GOOGLE_CSE_ID", "test-id")
 os.environ.setdefault("FLASK_SECRET_KEY", "test-secret-key-for-testing-only")
 
 

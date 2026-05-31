@@ -27,39 +27,7 @@
 
 ### 请求流程
 
-```
-用户提问
-    │
-    ▼
-┌─ 缓存检查 ─────────────────────────────────┐
-│  命中 → 直接返回缓存答案（零 LLM 调用）      │
-│  未命中 → 继续                              │
-└────────────────────────────────────────────┘
-    │
-    ▼
-┌─ 规则路由器（快速路径）─────────────────────┐
-│  关键词匹配 → 直接识别为 web 意图（零 LLM） │
-│  不匹配 → 交给 LLM Router                  │
-└────────────────────────────────────────────┘
-    │
-    ▼
-┌─ LLM Router（意图路由）────────────────────┐
-│  分类: lecture / web / hybrid / unknown     │
-└────────────────────────────────────────────┘
-    │
-    ├── "lecture" ──→ RAG 检索 → 相似度阈值
-    │                       │
-    │          ├─ ≥0.82 ──→ 直接使用（跳过 Guard）
-    │          ├─ 0.55~0.82 → Grounding Check
-    │          └─ ≤0.55 ──→ 跳过（无结果）
-    │                       │
-    │                       ▼
-    │                  Analyst 生成答案
-    │
-    ├── "web" ────────→ Tavily 搜索 → Analyst
-    │
-    └── "hybrid" ─────→ RAG + 搜索 → Analyst
-```
+![Request Processing Pipeline](picts/request_flow.svg)
 
 ### Agent 角色
 
@@ -71,28 +39,7 @@
 
 ### 多模态 RAG 管道
 
-```
-knowledge/*.pdf / *.pptx / *.docx
-    │
-    ├── DocumentProcessor
-    │   ├── extract_text()    → 语义分块（段落/标题边界，100-1200 字符）
-    │   ├── extract_images()  → PIL Image → BLIP 描述 → 存储
-    │   └── extract_tables()  → 转为 Markdown 表格字符串
-    │
-    └── ChromaDB（本地持久化）
-        ├── document: 文本 / 图片描述 / 表格 Markdown
-        ├── metadata:
-        │   ├── type:       "text" | "image" | "table"
-        │   ├── source:     来源文件名
-        │   └── indexed_at: 索引时间戳
-        └── vector: 384 维嵌入（paraphrase-multilingual-MiniLM-L12-v2）
-                │
-                ▼
-        余弦相似度 ANN 搜索 → BM25 混合重排序 → Top-K
-                │
-                ▼
-        相似度阈值门控（≥0.82 免 Guard，≤0.55 跳过）
-```
+![RAG Pipeline](picts/rag_pipeline.svg)
 
 ### 判定门控原理
 
@@ -193,7 +140,10 @@ lecture_crewLLM/
 ├── chroma_db/                       # ChromaDB 持久化数据（自动生成）
 ├── conversations/sessions/          # 会话文件（自动生成）
 ├── cache/                           # 缓存（自动生成）
-└── output/                          # 答案导出（自动生成）
+├── output/                          # 答案导出（自动生成）
+└── picts/                           # SVG 流程图
+    ├── request_flow.svg
+    └── rag_pipeline.svg
 ```
 
 ---
