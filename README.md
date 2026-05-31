@@ -128,7 +128,7 @@ lecture_crewLLM/
 │   ├── image_captioner.py       # BLIP image caption generation
 │   ├── conversation_manager.py  # Conversation persistence (≤300 token summary)
 │   ├── session_manager.py       # Multi-session creation & management
-│   ├── answer_cache.py          # Answer cache (30-day TTL, exact + semantic matching)
+│   ├── answer_cache.py          # Answer cache (TTL 30-day, exact hash + similarity fallback)
 │   ├── google_search_tool.py    # Google Programmable Search integration
 │   ├── local_file_tool.py       # Local file reader (CrewAI Tool compatible)
 │   └── status_tracker.py        # SSE progress tracker
@@ -210,7 +210,9 @@ lecture_crewLLM/
 | **Similarity gate** | 3-tier thresholds (≥0.82 / 0.55-0.82 / ≤0.55) | Reduces unnecessary Guard LLM calls; only borderline cases need it |
 | **Routing** | Rule-based keyword match → LLM fallback | Zero LLM cost for weather/news/stock queries |
 | **Cache normalization** | MD5(dedupe + sort + strip stopwords/punctuation) | "What is BERT?" ≡ "BERT explained" → same cache hit |
+| **Cache similarity threshold** | Jaccard + coverage fusion, threshold 0.65 | Prevents false positive matches like "水原天气" ↔ "明天天气" |
 | **Web search persistence** | Store search results in RAG with type="web" | Similar future queries hit RAG instead of re-calling Tavily API |
+| **Model via env** | `LLM_MODEL` env var | Switch provider/model without code changes |
 
 ---
 

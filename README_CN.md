@@ -116,7 +116,7 @@ lecture_crewLLM/
 │   ├── image_captioner.py           # BLIP 图片描述生成
 │   ├── conversation_manager.py      # 对话历史持久化（≤300 tokens 摘要）
 │   ├── session_manager.py           # 多会话创建与管理
-│   ├── answer_cache.py              # 答案缓存（TTL 30 天，精确+语义匹配）
+│   ├── answer_cache.py              # 答案缓存（TTL 30 天，精确哈希 + 相似度回退匹配）
 │   ├── google_search_tool.py        # Google 搜索集成
 │   ├── local_file_tool.py           # 文件读取（CrewAI Tool 兼容）
 │   └── status_tracker.py            # SSE 进度追踪
@@ -198,6 +198,9 @@ lecture_crewLLM/
 | **阈值门控** | 三档阈值（≥0.82 / 0.55-0.82 / ≤0.55） | 减少不必要的 Guard LLM 调用，仅边界案例需要 |
 | **路由策略** | 规则匹配（关键词）→ LLM 兜底 | 天气/新闻等明确问题零 LLM 路由成本 |
 | **缓存归一化** | MD5(去标点+排序+去重 tokens) | "什么是 BERT" ≡ "BERT 是什么" ← 同一缓存命中 |
+| **缓存相似度阈值** | Jaccard + coverage 融合，阈值 0.65 | 防止"水原天气" ↔ "明天天气" 等假阳性匹配 |
+| **Web 搜索持久化** | 搜索结果存入 RAG（type="web"） | 相似查询命中 RAG 直接返回，免重新调用 Tavily API |
+| **模型配置** | `LLM_MODEL` 环境变量 | 不修改代码即可切换模型 |
 | **Web 搜索持久化** | 搜索结果存入 RAG（type="web"） | 相似查询命中 RAG 直接返回，免重新调用 Tavily API |
 
 ---
