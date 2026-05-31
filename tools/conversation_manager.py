@@ -85,22 +85,6 @@ class ConversationManager:
             context += f"{role_name}: {msg['content'][:200]}...\n" if len(msg['content']) > 200 else f"{role_name}: {msg['content']}\n"
         return context + "--- 历史结束 ---\n"
     
-    def get_full_context_for_agent(self) -> str:
-        """获取完整的对话上下文供 Agent 参考"""
-        if not self.history:
-            return ""
-        
-        context = "## 之前的对话上下文\n\n"
-        context += "用户之前询问过与讲座相关的问题，以下是对话历史：\n\n"
-        
-        for i, msg in enumerate(self.history[-4:]):
-            if msg.role == "user":
-                context += f"**用户问题 {i + 1}：** {msg.content[:300]}\n\n"
-            else:
-                summary = msg.content[:500] + ("..." if len(msg.content) > 500 else "")
-                context += f"**之前的回答：** {summary}\n\n"
-        
-        return context
     
     def get_summary_context(self) -> str:
         """返回精简的对话历史摘要（≤300 token），替代完整历史。

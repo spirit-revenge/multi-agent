@@ -307,10 +307,9 @@ class TestLectureVectorStore:
 
     @staticmethod
     def _setup_method():
-        """Disable module-level caches/reranker before each test."""
-        from tools.rag_store import retrieval_cache, _reranker
+        """Disable module-level caches before each test."""
+        from tools.rag_store import retrieval_cache
         retrieval_cache.clear()
-        _reranker._available = False
 
     def _make_store(self):
         """Create a store with temp directories and a mocked collection."""
@@ -441,9 +440,8 @@ class TestLectureVectorStore:
         shutil.rmtree(store_dir, ignore_errors=True)
 
     def test_retrieve_filter_by_type(self):
-        from tools.rag_store import LectureVectorStore, retrieval_cache, _reranker
+        from tools.rag_store import LectureVectorStore, retrieval_cache
         retrieval_cache.clear()
-        _reranker._available = False  # skip model download in tests
 
         store, store_dir = self._make_store()
 
@@ -463,29 +461,28 @@ class TestLectureVectorStore:
         assert results[0]["type"] == "image"
         assert results[0]["image_path"] == "images/test.png"
 
-        # Verify query was called with hybrid_k = max(k*4, 12) = 12
+        # Verify query was called with hybrid_k = max(k*2, 8) = 8 (k=3 → max(6,8) = 8)
         store.collection.query.assert_called_with(
             query_texts=["test image query"],
-            n_results=12,
+            n_results=8,
             where={"type": "image"},
         )
 
         # Cleanup
         shutil.rmtree(store_dir, ignore_errors=True)
 
-    def test_get_context_for_query(self):
+    def test_format_chunks_as_context(self):
         from tools.rag_store import LectureVectorStore
         store, store_dir = self._make_store()
 
-        store.collection.query.return_value = {
-            "documents": [["这是文本。", "| A | B |"]],
-            "metadatas": [[{"type": "text", "source": "a.pdf", "indexed_at": "2026-01-01"},
-                          {"type": "table", "source": "a.pdf", "indexed_at": "2026-01-01"}]],
-            "distances": [[0.1, 0.2]],
-            "ids": [["id1", "id2"]],
-        }
-
-        ctx = store.get_context_for_query("test", k=2)
+        entries = [
+            {"content": "这是文本。", "source": "a.pdf", "type": "text",
+             "chunk_index": 0, "indexed_at": "2026-01-01", "similarity": 0.9},
+            {"content": "| A | B |\n| --- | --- |\n| 1 | 2 |", "source": "a.pdf",
+             "type": "table", "chunk_index": 0, "indexed_at": "2026-01-01",
+             "similarity": 0.8},
+        ]
+        ctx = store.format_chunks_as_context(entries)
         assert "这是文本" in ctx
         assert "| A | B |" in ctx
         assert "📝" in ctx  # text icon

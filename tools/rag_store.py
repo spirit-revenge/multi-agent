@@ -229,62 +229,6 @@ class _BM25Index:
 
 _bm25 = _BM25Index()
 
-
-# ---------------------------------------------------------------------------
-# CrossEncoder Reranker — optional, loaded lazily
-# ---------------------------------------------------------------------------
-
-class _Reranker:
-    """Optional CrossEncoder reranker for top-N re-scoring.
-
-    Model is loaded on first use only. Falls back silently if unavailable.
-    """
-
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
-        self._model_name = model_name
-        self._model = None
-        self._available = True
-
-    def _load(self):
-        if self._model is not None:
-            return
-        try:
-            from sentence_transformers import CrossEncoder
-            self._model = CrossEncoder(self._model_name)
-            logger.info("Reranker loaded: %s", self._model_name)
-        except Exception as e:
-            logger.warning("Reranker unavailable (falling back to hybrid only): %s", e)
-            self._available = False
-            self._model = None
-
-    def rerank(self, query: str, candidates: list[dict], top_k: int = 3) -> list[dict]:
-        """Re-score candidates using cross-encoder, return top-k.
-
-        Falls back to input ordering if model is unavailable.
-        """
-        if not candidates or not self._available:
-            return candidates[:top_k]
-
-        self._load()
-        if self._model is None:
-            return candidates[:top_k]
-
-        try:
-            pairs = [(query, c.get("content", "")) for c in candidates]
-            scores = self._model.predict(pairs)
-            for i, score in enumerate(scores):
-                if i < len(candidates):
-                    # Blend: 60% cross-encoder + 40% original hybrid score
-                    candidates[i]["similarity"] = 0.6 * float(score) + 0.4 * candidates[i].get("similarity", 0)
-            candidates.sort(key=lambda e: e["similarity"], reverse=True)
-            return candidates[:top_k]
-        except Exception as e:
-            logger.warning("Reranker inference failed: %s", e)
-            return candidates[:top_k]
-
-
-_reranker = _Reranker()
-
 # ============================================================================
 # Embedding function (reused from original; uses sentence-transformers)
 # ============================================================================
@@ -564,7 +508,7 @@ class LectureVectorStore:
             return 0
 
         if not existing_ids:
-            return
+            return 0
 
         # Remove associated image files from disk
         for meta in existing_metadatas:
@@ -582,8 +526,6 @@ class LectureVectorStore:
             logger.debug("Deleted %d old entries for %s", len(existing_ids), file_path.name)
         except Exception as e:
             logger.warning("Failed to delete old entries for %s: %s", file_path.name, e)
-
-        return len(existing_ids)
 
         return len(existing_ids)
 
@@ -644,7 +586,7 @@ class LectureVectorStore:
             where = {"type": content_type}
 
         # Get more candidates so BM25 has room to re-rank
-        hybrid_k = max(k * 4, 12)
+        hybrid_k = max(k * 2, 8)
         results = self.collection.query(
             query_texts=[final_query],
             n_results=hybrid_k,
@@ -674,7 +616,7 @@ class LectureVectorStore:
                 entry["image_path"] = meta["image_path"]
             entries.append(entry)
 
-        # 5. Hybrid re-rank: fuse embedding similarity with BM25 scores
+        # 5. Hybrid re-rank: fuse embedding similarity with BM25 scores (no CrossEncoder — adds latency for marginal gain)
         if len(entries) > k and not _bm25._dirty:
             bm25_scores = _bm25.scores(final_query, range(len(documents)))
             # Normalize BM25 scores to 0-1 range
@@ -692,10 +634,7 @@ class LectureVectorStore:
             entries.sort(key=lambda e: e["similarity"], reverse=True)
             entries = entries[:k]
 
-        # 6. CrossEncoder Reranker (optional — falls back silently)
-        entries = _reranker.rerank(query, entries, top_k=k)
-
-        # 7. Cache the result
+        # 6. Cache the result
         retrieval_cache.set(query, entries)
         return entries
 
@@ -748,18 +687,6 @@ class LectureVectorStore:
 
         context += "注意：上述每张图片后面都已附带了正确的 Markdown 引用路径，**直接复制即可**。不要自己编造 /images/ 路径。\n"
         return context
-
-    def get_context_for_query(
-        self,
-        query: str,
-        k: int = 5,
-    ) -> str:
-        """Return formatted context string for prompt injection (backward-compatible).
-
-        Delegates to format_chunks_as_context() after retrieval.
-        """
-        entries = self.retrieve(query, k)
-        return self.format_chunks_as_context(entries)
 
     # ------------------------------------------------------------------
     # Deletion

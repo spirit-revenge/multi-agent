@@ -36,6 +36,10 @@ const fileInput = document.getElementById('fileInput');
 // Buttons
 const btnSessions = document.getElementById('btnSessions');
 const btnExportChat = document.getElementById('btnExportChat');
+const locationInput = document.getElementById('locationInput');
+const btnSetLocation = document.getElementById('btnSetLocation');
+const btnDetectLocation = document.getElementById('btnDetectLocation');
+const locationStatus = document.getElementById('locationStatus');
 const btnClearHistory = document.getElementById('btnClearHistory');
 const btnClearCache = document.getElementById('btnClearCache');
 const btnCreateSession = document.getElementById('btnCreateSession');
@@ -64,31 +68,63 @@ let activeEventSource = null;
 let elapsedTimer = null;
 let elapsedSeconds = 0;
 let tipIndex = 0;
+let currentLoadingMsg = null;  // track the inline loading bubble
 
 // ============================================================================
 // Event Listeners
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    initializeUI();
-    setupEventListeners();
+    try {
+        initializeUI();
+        setupEventListeners();
+    } catch (e) {
+        console.error('Initialization error (non-fatal):', e);
+    }
     loadInitialData();
 });
 
 function setupEventListeners() {
     // Send message
-    btnSend.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', handleMessageInputKeypress);
-    messageInput.addEventListener('keydown', handleMessageInputKeydown);
+    if (btnSend) btnSend.addEventListener('click', sendMessage);
+    if (messageInput) {
+        messageInput.addEventListener('keypress', handleMessageInputKeypress);
+        messageInput.addEventListener('keydown', handleMessageInputKeydown);
+    }
 
-    // Web search toggle
-    if (btnToggleWeb) {
-        btnToggleWeb.addEventListener('click', toggleWebSearch);
+    // Location
+    if (locationStatus) {
+        const saved = localStorage.getItem('user_location');
+        if (saved) {
+            locationStatus.textContent = saved;
+            if (locationInput) locationInput.value = saved;
+        }
+    }
+
+    if (btnDetectLocation) {
+        btnDetectLocation.addEventListener('click', detectLocation);
+    }
+
+    if (btnSetLocation && locationInput) {
+        btnSetLocation.addEventListener('click', () => {
+            const loc = locationInput.value.trim();
+            localStorage.setItem('user_location', loc);
+            if (locationStatus) locationStatus.textContent = loc || '未检测';
+            showToast(loc ? `📍 位置已设为 ${loc}` : '📍 位置已清除', 'success');
+        });
+        locationInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnSetLocation.click();
+        });
+    }
+
+    // Auto-detect on page load if no saved location
+    if (btnDetectLocation && !localStorage.getItem('user_location')) {
+        detectLocation();
     }
 
     // Session management
-    btnSessions.addEventListener('click', openSessionsModal);
-    btnCreateSession.addEventListener('click', createNewSession);
+    if (btnSessions) btnSessions.addEventListener('click', openSessionsModal);
+    if (btnCreateSession) btnCreateSession.addEventListener('click', createNewSession);
 
     // History
     if (btnExportChat) btnExportChat.addEventListener('click', exportConversation);
@@ -154,8 +190,14 @@ function startElapsedTimer() {
     if (elapsedTimer) clearInterval(elapsedTimer);
     elapsedTimer = setInterval(() => {
         elapsedSeconds++;
+        // Update old overlay timer (if visible)
         if (elapsedTime) {
             elapsedTime.textContent = `已用 ${elapsedSeconds} 秒`;
+        }
+        // Update inline bubble timer
+        if (currentLoadingMsg) {
+            const counter = currentLoadingMsg.querySelector('.elapsed-count');
+            if (counter) counter.textContent = elapsedSeconds;
         }
         // Rotate tip every 8 seconds
         if (elapsedSeconds > 0 && elapsedSeconds % 8 === 0) {
@@ -214,6 +256,82 @@ function setProgressStep(stepId) {
     updateLoadingTip(stepId);
 }
 
+// ============================================================================
+// Inline Loading Bubble (replaces full-screen overlay)
+// ============================================================================
+
+function addLoadingMessage() {
+    // Remove welcome message if present
+    const welcomeMsg = chatContainer.querySelector('.welcome-message');
+    if (welcomeMsg) welcomeMsg.remove();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant loading-message';
+
+    const avatarEl = document.createElement('div');
+    avatarEl.className = 'message-avatar';
+    avatarEl.textContent = '🤖';
+
+    const bubbleEl = document.createElement('div');
+    bubbleEl.className = 'message-bubble loading-bubble';
+    bubbleEl.innerHTML = `
+        <div class="loading-header">
+            <span class="loading-spinner"></span>
+            <span class="loading-status">正在思考...</span>
+        </div>
+        <div class="loading-steps">
+            <div class="lstep" data-step="routing">🎯 分析问题意图</div>
+            <div class="lstep" data-step="rag">💡 检索讲座知识库</div>
+            <div class="lstep" data-step="searching">🌐 搜索网络资源</div>
+            <div class="lstep" data-step="generating">🧠 生成答案</div>
+        </div>
+        <div class="loading-elapsed">⏱ 已用 <span class="elapsed-count">0</span> 秒</div>
+    `;
+
+    messageEl.appendChild(avatarEl);
+    messageEl.appendChild(bubbleEl);
+    chatContainer.appendChild(messageEl);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    return messageEl;
+}
+
+function updateLoadingStep(step) {
+    if (!currentLoadingMsg) return;
+    const steps = currentLoadingMsg.querySelectorAll('.lstep');
+    let found = false;
+    steps.forEach(el => {
+        if (el.dataset.step === step) {
+            el.classList.add('active');
+            el.classList.remove('done');
+            found = true;
+        } else if (!found) {
+            el.classList.add('done');
+            el.classList.remove('active');
+        } else {
+            el.classList.remove('active', 'done');
+        }
+    });
+
+    // Update status text
+    const statusEl = currentLoadingMsg.querySelector('.loading-status');
+    const tips = {
+        'routing': '正在分析问题意图...',
+        'rag': '正在检索讲座知识库...',
+        'searching': '正在搜索网络资源...',
+        'generating': '正在生成答案...',
+        'complete': '✅ 答案已生成！',
+    };
+    if (statusEl && tips[step]) statusEl.textContent = tips[step];
+}
+
+function removeLoadingMessage() {
+    if (currentLoadingMsg) {
+        currentLoadingMsg.remove();
+        currentLoadingMsg = null;
+    }
+}
+
 function subscribeToProgress(taskId) {
     if (activeEventSource) {
         activeEventSource.close();
@@ -226,23 +344,13 @@ function subscribeToProgress(taskId) {
             const msg = JSON.parse(event.data);
             switch (msg.step) {
                 case 'routing':
-                    setProgressStep('stepRouting');
-                    break;
                 case 'rag':
-                    setProgressStep('stepRag');
-                    break;
                 case 'searching':
-                    setProgressStep('stepSearching');
-                    break;
                 case 'generating':
-                    setProgressStep('stepGenerating');
+                    updateLoadingStep(msg.step);
                     break;
                 case 'complete':
-                    setProgressStep('stepGenerating');
-                    document.querySelectorAll('.progress-step').forEach(el => {
-                        el.classList.add('done');
-                        el.classList.remove('active');
-                    });
+                    updateLoadingStep('complete');
                     es.close();
                     activeEventSource = null;
                     break;
@@ -274,10 +382,9 @@ async function sendMessage() {
     // Add user message to chat
     addMessageToChat('user', message);
 
-    // Show loading overlay with progress steps + timer
+    // Add inline loading bubble
     isProcessing = true;
-    resetProgressSteps();
-    showLoadingOverlay(true);
+    currentLoadingMsg = addLoadingMessage();
     startElapsedTimer();
 
     try {
@@ -286,16 +393,17 @@ async function sendMessage() {
         const taskData = await taskResp.json();
         const taskId = taskData.task_id;
 
-        // Subscribe to SSE before sending the message
+        // Subscribe to SSE
         subscribeToProgress(taskId);
 
         // Send message to backend
+        const userLoc = localStorage.getItem('user_location') || '';
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ message: message, task_id: taskId, use_web_search: useWebSearch })
+            body: JSON.stringify({ message: message, task_id: taskId, use_web_search: useWebSearch, location: userLoc })
         });
 
         const data = await response.json();
@@ -307,8 +415,9 @@ async function sendMessage() {
         }
 
         if (data.success) {
-            // Handle cannot_answer case (web search off, RAG found nothing)
+            // Handle cannot_answer case
             if (data.cannot_answer) {
+                removeLoadingMessage();
                 addMessageToChat('assistant', data.response, 'no-web', '⚠️ 未联网');
                 showToast('知识库中未找到相关信息', 'warning');
                 updateStatus();
@@ -318,6 +427,7 @@ async function sendMessage() {
             const badge = data.from_cache ? 'cached' : 'fresh';
             const badgeText = data.from_cache ? '来自缓存' : '实时生成';
 
+            removeLoadingMessage();
             addMessageToChat('assistant', data.response, badge, badgeText, data.export_name);
 
             const toastMsg = data.from_cache
@@ -339,7 +449,7 @@ async function sendMessage() {
     } finally {
         isProcessing = false;
         stopElapsedTimer();
-        showLoadingOverlay(false);
+        currentLoadingMsg = null;
         if (activeEventSource) {
             activeEventSource.close();
             activeEventSource = null;
@@ -853,48 +963,6 @@ async function exportConversation() {
 // ============================================================================
 // Conversation Export
 // ============================================================================
-
-async function exportConversation() {
-    try {
-        const response = await fetch('/api/history');
-        const data = await response.json();
-
-        if (!data.success || data.history.length === 0) {
-            showToast('暂无对话可导出', 'warning');
-            return;
-        }
-
-        // Build Markdown content
-        let md = `# LectureCrewLLM 对话导出\n\n`;
-        md += `导出时间：${new Date().toLocaleString('zh-CN')}\n\n`;
-        md += `---\n\n`;
-
-        data.history.forEach((msg, i) => {
-            const roleLabel = msg.role === 'user' ? '## 👤 用户' : '## 🤖 助手';
-            md += `${roleLabel}\n\n`;
-            md += `${msg.content}\n\n`;
-            if (i < data.history.length - 1) {
-                md += `---\n\n`;
-            }
-        });
-
-        // Download
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `对话导出_${timestamp}.md`;
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast('✅ 对话已导出为 Markdown 文件', 'success');
-    } catch (error) {
-        console.error('Error exporting conversation:', error);
-        showToast('导出失败', 'error');
-    }
-}
-
-// ============================================================================
 // Knowledge (File) Management
 // ============================================================================
 
@@ -1175,6 +1243,50 @@ function showToast(message, type = 'info') {
 // ============================================================================
 // Web Search Toggle
 // ============================================================================
+
+// ============================================================================
+// Location Detection
+// ============================================================================
+
+function detectLocation() {
+    if (!navigator.geolocation) {
+        if (locationStatus) locationStatus.textContent = '不支持定位';
+        return;
+    }
+    if (locationStatus) locationStatus.textContent = '检测中...';
+
+    navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+            const { latitude, longitude } = pos.coords;
+            try {
+                // Reverse geocode via Nominatim (free, no key required)
+                const resp = await fetch(
+                    `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=zh`,
+                    { headers: { 'User-Agent': 'LectureCrewLLM/1.0' } }
+                );
+                const data = await resp.json();
+                const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || '';
+                const country = data.address?.country || '';
+                const loc = city ? `${city}, ${country}` : `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
+
+                localStorage.setItem('user_location', loc);
+                if (locationInput) locationInput.value = loc;
+                if (locationStatus) locationStatus.textContent = loc;
+                showToast(`📍 已检测到位置：${loc}`, 'success');
+            } catch (e) {
+                // Fallback: use coordinates directly
+                const loc = `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
+                localStorage.setItem('user_location', loc);
+                if (locationStatus) locationStatus.textContent = loc;
+            }
+        },
+        (err) => {
+            if (locationStatus) locationStatus.textContent = '定位失败';
+            console.warn('Geolocation error:', err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
 
 function toggleWebSearch() {
     useWebSearch = !useWebSearch;

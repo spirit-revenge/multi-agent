@@ -68,6 +68,7 @@ def rule_router(question: str) -> str | None:
 
 import hashlib as _hashlib
 import json as _json
+import re
 import time as _time
 
 _SEARCH_CACHE_FILE = Path("cache/search_cache.json")
@@ -80,6 +81,7 @@ def _load_search_cache() -> dict:
             return _json.loads(_SEARCH_CACHE_FILE.read_text(encoding="utf-8"))
     except Exception:
         pass
+    return {}
     return {}
 
 
@@ -198,75 +200,6 @@ def router_agent():
     )
 
 
-def search_agent():  # kept for backward compatibility; unused
-    return None
-
-
-
-
-
-# --- 3. Define Tasks ---
-
-def create_tasks(folder_path="knowledge", user_question=None, conversation_manager=None, task_id=None):
-    """
-    Build the task list for the crew.
-    RAG retrieval runs here (before crew kickoff) and its results are injected
-    directly into the Analyst's task as context.
-    In sequential mode:
-      1. Internet Researcher → web search
-      2. Lecture Analyst   → final answer synthesis
-    """
-    if task_id:
-        status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
-
-    try:
-        rag_context = vector_store.get_context_for_query(user_question, k=5)
-    except Exception as e:
-        logger.warning("RAG retrieval failed: %s. Falling back to file reader.", e)
-        rag_context = ""
-    if not rag_context:
-        rag_context = "向量库中未找到相关的讲座内容。"
-
-    if task_id:
-        status_tracker.update(task_id, "rag", f"已检索到相关知识（{len(rag_context)} 字符）")
-
-    conversation_context = ""
-    if conversation_manager and len(conversation_manager) > 0:
-        conversation_context = conversation_manager.get_summary_context()
-
-    # Task 1: Internet search
-    task_search = Task(
-        description=f"""搜索与以下问题相关的网页信息、定义和示例：{user_question}
-
-{conversation_context}
-
-以 **JSON 格式** 返回结果：
-{{
-  "facts": ["要点1", "要点2", ...],
-  "urls": ["来源URL1", "来源URL2", ...]
-}}
-每条 facts 控制在 100 字以内。""",
-        expected_output='JSON 对象，包含 facts 数组和 urls 数组。',
-        agent=search_agent(),
-    )
-
-    # Task 2: Final answer synthesis
-    task_answer = Task(
-        description=f"""用户问题：{user_question}
-
-{conversation_context}
-
---- 讲座内容（RAG 检索）---
-{rag_context}
-
---- 网络搜索结果 ---
-{{{{task_search.output}}}}""",
-        expected_output="中文 Markdown 回答。",
-        agent=content_analyst_agent(),
-        context=[task_search],
-    )
-
-    return [task_search, task_answer]
 
 
 # --- 3.5 Guard Agent (LLM-based relevance gate) ---
@@ -400,7 +333,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 
     # ---- Step 2: RAG Retrieval (lecture / hybrid routes) ----
     RAG_K = 3               # reduce from 5 to 3 → fewer tokens
-    MAX_RAG_CHARS = 4000    # hard character limit
+    MAX_RAG_CHARS = 2000    # hard character limit (was 4000 — 3 chunks × ~660 chars is plenty)
 
     rag_context = ""
     if intent in ("lecture", "hybrid", "unknown"):
@@ -429,18 +362,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
                 rag_result = grounding_check(user_question, raw_rag)
 
                 if rag_result == "IRRELEVANT":
-                    # Retry once with expanded query
-                    retry_query = f"{user_question} 是什么 概念 原理 介绍"
-                    try:
-                        retry_entries = vector_store.retrieve(retry_query, k=RAG_K)
-                        if retry_entries:
-                            retry_rag = vector_store.format_chunks_as_context(retry_entries)
-                            rag_result = grounding_check(user_question, retry_rag)
-                            rag_context = rag_result if rag_result != "IRRELEVANT" else ""
-                        else:
-                            rag_context = ""
-                    except Exception:
-                        rag_context = ""
+                    rag_context = ""
                 else:
                     rag_context = rag_result
         else:

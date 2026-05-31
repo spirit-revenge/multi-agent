@@ -187,6 +187,7 @@ def api_chat():
         user_message = data.get('message', '').strip()
         task_id = data.get('task_id', '')
         use_web_search = data.get('use_web_search', True)
+        user_location = data.get('location', '')
 
         if not user_message:
             return jsonify({'success': False, 'error': '消息不能为空'}), 400
@@ -217,9 +218,14 @@ def api_chat():
             task_id = status_tracker.create_task()
 
         try:
+            # Append location to question for location-dependent queries
+            query = user_message
+            if user_location and '天气' in user_message:
+                query = f"{user_message} {user_location}"
+
             final_answer = run_crew(
                 folder_path="knowledge",
-                user_question=user_message,
+                user_question=query,
                 conversation_manager=conv_mgr,
                 task_id=task_id,
                 use_web_search=use_web_search,

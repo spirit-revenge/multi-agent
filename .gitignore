@@ -28,6 +28,7 @@ output/*.md
 # Temp / scratch files
 tests/a.py
 tests/temp_*.py
+CLAUDE.md
 
 # Conversation sessions
 conversations/sessions/*.json

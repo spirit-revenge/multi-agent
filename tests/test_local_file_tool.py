@@ -10,12 +10,12 @@ class TestReadLocalLectureFilesTool:
         tool = ReadLocalLectureFilesTool()
         with tempfile.TemporaryDirectory() as tmp:
             result = tool._run(folder_path=tmp)
-            assert "No PDF or PPT files found" in result
+            assert "未找到 PDF 或 PPT 文件" in result
 
     def test_nonexistent_folder(self):
         tool = ReadLocalLectureFilesTool()
         result = tool._run(folder_path="/nonexistent/path/xyz")
-        assert "does not exist" in result
+        assert "不存在" in result
 
     def test_skips_non_lecture_files(self):
         tool = ReadLocalLectureFilesTool()
@@ -23,4 +23,4 @@ class TestReadLocalLectureFilesTool:
             (Path(tmp) / "notes.txt").write_text("hello")
             (Path(tmp) / "image.png").write_text("fake")
             result = tool._run(folder_path=tmp)
-            assert "No PDF or PPT files found" in result
+            assert "未找到 PDF 或 PPT 文件" in result

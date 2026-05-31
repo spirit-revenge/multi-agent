@@ -101,12 +101,3 @@ class TestConversationManager:
         assert "No previous conversation history" in ctx
         path.unlink(missing_ok=True)
 
-    def test_get_full_context_for_agent(self):
-        mgr, path = self._make_mgr()
-        mgr.add_message("user", "Explain transformer")
-        mgr.add_message("assistant", "A transformer is...")
-        ctx = mgr.get_full_context_for_agent()
-        assert "Explain transformer" in ctx
-        assert "A transformer is" in ctx
-        assert "之前的对话上下文" in ctx
-        path.unlink(missing_ok=True)
