@@ -121,7 +121,7 @@ python main.py       # CLI 模式
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 101 个测试，全部通过
+python -m pytest tests/ -v    # 129 个测试，全部通过
 ```
 
 ---
@@ -147,7 +147,7 @@ lecture_crewLLM/
 │   └── status_tracker.py            # SSE 进度追踪
 │
 ├── tests/
-│   ├── test_rag.py                  # RAG 测试（31）
+│   ├── test_rag.py                  # RAG 测试（35）
 │   ├── test_answer_cache.py         # 缓存测试（12）
 │   ├── test_conversation_manager.py # 对话测试（16）
 │   ├── test_session_manager.py      # 会话测试（15）
@@ -240,8 +240,8 @@ lecture_crewLLM/
 | `test_session_manager.py` | 15 | 会话创建/列表/标签/删除、跨会话搜索 |
 | `test_status_tracker.py` | 6 | SSE 进度追踪、并发安全 |
 | `test_local_file_tool.py` | 3 | PDF/PPTX 读取、文件不存在处理 |
-| `test_web_api.py` | 15 | Flask API 状态/历史/搜索/会话/缓存/知识管理端点 |
-| **总计** | **101** | 全部通过 |
+| `test_web_api.py` | 42 | Flask API + HTML 模板 + SSE + 聊天 + 会话/知识/图片端点 |
+| **总计** | **129** | 全部通过 |
 
 ---
 

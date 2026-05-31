@@ -133,7 +133,7 @@ python main.py
 
 ```bash
 python -m pytest tests/ -v
-# 101 tests across 8 modules
+# 129 tests across 8 modules
 ```
 
 ---
@@ -251,8 +251,8 @@ lecture_crewLLM/
 | `test_session_manager.py` | 15 | Session create/list/label/delete, cross-session search |
 | `test_status_tracker.py` | 6 | SSE progress tracking, concurrency |
 | `test_local_file_tool.py` | 3 | PDF/PPTX reading, missing file handling |
-| `test_web_api.py` | 15 | Flask API status/history/search/session/cache/knowledge endpoints |
-| **Total** | **101** | All passing |
+| `test_web_api.py` | 42 | Flask API + HTML template + SSE + chat + session/knowledge/image endpoints |
+| **Total** | **129** | All passing |
 
 ---
 
