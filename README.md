@@ -23,6 +23,31 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 
 ---
 
+## Tech Stack
+
+| Layer | Technology | Version | Purpose |
+|-------|-----------|---------|---------|
+| **LLM** | DeepSeek Chat API | — | Primary language model (configurable via `LLM_MODEL`) |
+| **Agent Framework** | [CrewAI](https://github.com/crewAIInc/crewAI) | 1.14.3 | Multi-agent orchestration (sequential process) |
+| **Vector DB** | [ChromaDB](https://www.trychroma.com/) | 1.1.1 | Persistent vector storage + cosine ANN search |
+| **Embeddings** | [sentence-transformers](https://sbert.net/) | 5.4.1 | `paraphrase-multilingual-MiniLM-L12-v2` (384-dim) |
+| **Re-ranking** | BM25 Okapi (scikit-learn) | 1.8.0 | Statistical re-rank fused with embedding similarity (70/30) |
+| **Image Caption** | [BLIP](https://huggingface.co/Salesforce/blip-image-captioning-base) (transformers) | 5.7.0 | Image → text description for RAG indexing |
+| **Deep Learning** | [PyTorch](https://pytorch.org/) | 2.11.0 | Backend for sentence-transformers and BLIP |
+| **Document Parsing** | [PyMuPDF](https://pymupdf.readthedocs.io/) | 1.26.7 | PDF extraction |
+| | [python-pptx](https://python-pptx.readthedocs.io/) | 1.0.2 | PPTX extraction |
+| | [python-docx](https://python-docx.readthedocs.io/) | 1.2.0 | DOCX extraction |
+| **Web Search** | [Tavily](https://tavily.com/) | 0.7.24 | Real-time web search API |
+| **Web UI** | [Flask](https://flask.palletsprojects.com/) | 3.0.0 | HTTP server + REST API |
+| | Server-Sent Events (SSE) | — | Real-time progress streaming |
+| | Font Awesome (CDN) | 6.4.0 | Icons |
+| **Chinese NLP** | [jieba](https://github.com/fxsjy/jieba) | — | Chinese word segmentation for cache matching |
+| **Cache** | JSON file-based | — | 4-tier: answer + retrieval + search + web→RAG |
+| **Testing** | [pytest](https://pytest.org/) | 9.0.3 | 101 unit tests across 8 modules |
+| **Env Config** | [python-dotenv](https://github.com/theskumar/python-dotenv) | 1.2.2 | `.env` variable management |
+
+---
+
 ## System Architecture
 
 ### Request Flow

@@ -23,6 +23,31 @@
 
 ---
 
+## 技术栈
+
+| 层级 | 技术 | 版本 | 用途 |
+|------|------|------|------|
+| **LLM** | DeepSeek Chat API | — | 主力语言模型（可通过 `LLM_MODEL` 切换） |
+| **Agent 框架** | [CrewAI](https://github.com/crewAIInc/crewAI) | 1.14.3 | 多智能体编排（sequential process） |
+| **向量数据库** | [ChromaDB](https://www.trychroma.com/) | 1.1.1 | 持久化向量存储 + 余弦相似度 ANN 搜索 |
+| **嵌入模型** | [sentence-transformers](https://sbert.net/) | 5.4.1 | `paraphrase-multilingual-MiniLM-L12-v2` (384维) |
+| **重排序** | BM25 Okapi (scikit-learn) | 1.8.0 | 统计重排序与嵌入相似度融合 (70/30) |
+| **图片描述** | [BLIP](https://huggingface.co/Salesforce/blip-image-captioning-base) (transformers) | 5.7.0 | 图片 → 文字描述，用于 RAG 索引 |
+| **深度学习** | [PyTorch](https://pytorch.org/) | 2.11.0 | sentence-transformers 和 BLIP 的后端 |
+| **文档解析** | [PyMuPDF](https://pymupdf.readthedocs.io/) | 1.26.7 | PDF 提取 |
+| | [python-pptx](https://python-pptx.readthedocs.io/) | 1.0.2 | PPTX 提取 |
+| | [python-docx](https://python-docx.readthedocs.io/) | 1.2.0 | DOCX 提取 |
+| **联网搜索** | [Tavily](https://tavily.com/) | 0.7.24 | 实时网络搜索 API |
+| **Web UI** | [Flask](https://flask.palletsprojects.com/) | 3.0.0 | HTTP 服务器 + REST API |
+| | Server-Sent Events (SSE) | — | 实时进度推送 |
+| | Font Awesome (CDN) | 6.4.0 | 图标 |
+| **中文分词** | [jieba](https://github.com/fxsjy/jieba) | — | 中文分词（缓存匹配用） |
+| **缓存** | JSON 文件存储 | — | 四级：答案 + 检索 + 搜索 + web→RAG |
+| **测试** | [pytest](https://pytest.org/) | 9.0.3 | 101 个单元测试，覆盖 8 个模块 |
+| **环境配置** | [python-dotenv](https://github.com/theskumar/python-dotenv) | 1.2.2 | `.env` 变量管理 |
+
+---
+
 ## 系统架构
 
 ### 请求流程
