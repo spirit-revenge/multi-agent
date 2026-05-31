@@ -20,7 +20,7 @@ deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
 
 def _build_llm():
     return LLM(
-        model="deepseek/deepseek-chat",
+        model=os.getenv("LLM_MODEL", "deepseek/deepseek-chat"),
         api_key=deepseek_api_key,
         base_url="https://api.deepseek.com",
         temperature=0.7,
@@ -32,7 +32,7 @@ deepseek_llm = _build_llm()
 # Lightweight LLM for routing (cheap, fast)
 def _build_router_llm():
     return LLM(
-        model="deepseek/deepseek-chat",
+        model=os.getenv("LLM_MODEL", "deepseek/deepseek-chat"),
         api_key=deepseek_api_key,
         base_url="https://api.deepseek.com",
         temperature=0.1,
