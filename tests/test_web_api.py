@@ -123,6 +123,39 @@ class TestChatValidation:
         assert data["success"] is False
 
 
+class TestHistorySearchAPI:
+    """Test the history search endpoint."""
+
+    def test_search_requires_query(self, client):
+        resp = client.get("/api/history/search")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+        assert "搜索词" in data["error"]
+
+    def test_search_empty_query(self, client):
+        resp = client.get("/api/history/search?q=")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
+    def test_search_returns_results(self, client):
+        resp = client.get("/api/history/search?q=test")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert "results" in data
+        assert "count" in data
+        assert isinstance(data["results"], list)
+
+    def test_search_with_all_flag(self, client):
+        resp = client.get("/api/history/search?q=test&all=true")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert "results" in data
+
+
 class TestPageRoutes:
     """Test basic page routes."""
 

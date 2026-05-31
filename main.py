@@ -562,7 +562,7 @@ if __name__ == "__main__":
         print(f"Loaded {len(conversation_manager)} previous messages from history")
     if len(answer_cache) > 0:
         print(f"Loaded {len(answer_cache)} cached answers")
-    print("Type 'sessions' to switch conversations, 'clear' to start fresh, 'cache' for cache info, or ask a question.\n")
+    print("Type 'sessions' to switch conversations, 'clear' to start fresh, 'find <关键词>' to search, 'cache' for cache info, or ask a question.\n")
 
     while True:
         print("\n" + "-" * 60)
@@ -595,6 +595,56 @@ if __name__ == "__main__":
             continue
         elif user_input.lower() == 'session':
             print_session_summary(conversation_manager, current_session_label)
+            continue
+        elif user_input.lower().startswith('find '):
+            rest = user_input[5:].strip()
+            search_all = False
+            if rest.lower().startswith('all '):
+                search_all = True
+                keyword = rest[4:].strip()
+            else:
+                keyword = rest
+
+            if not keyword:
+                print("用法: find <关键词>  或  find all <关键词>")
+                continue
+
+            print("\n" + "=" * 60)
+            print(f"搜索: \"{keyword}\" {'（所有会话）' if search_all else '（当前会话）'}")
+            print("=" * 60)
+
+            if search_all:
+                results = session_manager.search_all_sessions(keyword)
+                if not results:
+                    print("未找到匹配的消息。")
+                else:
+                    # Group by session
+                    from collections import defaultdict
+                    grouped = defaultdict(list)
+                    for r in results:
+                        grouped[r["session"]].append(r)
+                    print(f"共 {len(results)} 条匹配\n")
+                    for session_name, items in grouped.items():
+                        print(f"  📂 {session_name} ({len(items)} 条)")
+                        for item in items:
+                            role_tag = "👤 你" if item["role"] == "user" else "🤖 助手"
+                            ts = item.get("timestamp", "")[:16]
+                            preview = item["content"][:200] + "..." if len(item["content"]) > 200 else item["content"]
+                            preview = preview.replace("\n", " ")
+                            print(f"    #{item['index']} [{ts}] {role_tag}: {preview}")
+                        print()
+            else:
+                results = conversation_manager.search_messages(keyword)
+                if not results:
+                    print("当前会话中未找到匹配的消息。尝试 find all <关键词> 搜索所有会话。")
+                else:
+                    print(f"共 {len(results)} 条匹配\n")
+                    for item in results:
+                        role_tag = "👤 你" if item["role"] == "user" else "🤖 助手"
+                        ts = item.get("timestamp", "")[:16]
+                        preview = item["content"][:200] + "..." if len(item["content"]) > 200 else item["content"]
+                        preview = preview.replace("\n", " ")
+                        print(f"  #{item['index']} [{ts}] {role_tag}: {preview}")
             continue
         elif not user_input:
             user_input = "Provide a concise summary of all lectures and list 3-5 key takeaways."
@@ -637,4 +687,4 @@ if __name__ == "__main__":
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(str(final_answer), encoding="utf-8")
         print(f"\nOutput saved to: {output_file.absolute()}")
-        print("\nTips: Type 'clear' to start fresh, 'history' for chat, 'cache' for cache info, 'exit' to quit.")
+        print("\nTips: Type 'clear' to start fresh, 'history' for chat, 'find <关键词>' to search, 'cache' for cache info, 'exit' to quit.")

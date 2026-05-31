@@ -643,45 +643,91 @@ html, body {
     font-family: 'Monaco', 'Courier New', monospace;
 }
 
-/* Location in sidebar */
-.location-display {
+/* Search in sidebar */
+.search-wrap {
     display: flex;
-    align-items: center;
     gap: 6px;
     margin-bottom: 8px;
-    font-size: 13px;
 }
 
-.location-status {
-    flex: 1;
-    color: rgba(255, 255, 255, 0.8);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Location input in sidebar */
-.location-input-wrap {
-    display: flex;
-    gap: 6px;
-}
-
-.location-input-wrap .form-input {
+.search-wrap .form-input {
     flex: 1;
     font-size: 13px;
     padding: 6px 10px;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     color: white;
+    border-radius: var(--radius-sm);
 }
 
-.location-input-wrap .form-input::placeholder {
+.search-wrap .form-input::placeholder {
     color: rgba(255, 255, 255, 0.5);
 }
 
-.location-input-wrap .form-input:focus {
+.search-wrap .form-input:focus {
+    outline: none;
     border-color: rgba(255, 255, 255, 0.5);
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+.search-all-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+.search-all-label input[type="checkbox"] {
+    accent-color: var(--primary);
+}
+
+.search-results {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.search-empty, .search-count {
+    font-size: 12px;
+    opacity: 0.7;
+    text-align: center;
+    padding: 8px 0;
+}
+
+.search-count {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.search-result-item {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.search-result-item:hover {
+    background: rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+}
+
+.search-result-role {
+    font-weight: 600;
+    margin-bottom: 2px;
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.search-result-content {
+    line-height: 1.4;
+    opacity: 0.9;
 }
 
 .btn-send:hover {
@@ -1379,4 +1425,19 @@ html, body {
 
 .hidden {
     display: none !important;
+}
+
+/* ============================================================================
+   Jump-to-message highlight animation
+   ============================================================================ */
+
+@keyframes highlightFlash {
+    0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5); background: rgba(37, 99, 235, 0.08); }
+    50%  { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); background: rgba(37, 99, 235, 0.04); }
+    100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); background: transparent; }
+}
+
+.message.highlight-flash {
+    animation: highlightFlash 1.5s ease-out;
+    border-radius: var(--radius-lg);
 }

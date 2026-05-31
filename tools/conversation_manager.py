@@ -73,6 +73,23 @@ class ConversationManager:
             for msg in messages
         ]
     
+    def search_messages(self, keyword: str) -> list:
+        """在当前会话中按关键词搜索消息。
+        返回匹配的消息列表，每条包含 index、role、content、timestamp。
+        匹配不区分大小写。
+        """
+        results = []
+        kw = keyword.lower()
+        for i, msg in enumerate(self.history):
+            if kw in msg.content.lower():
+                results.append({
+                    "index": i,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                })
+        return results
+
     def get_context_string(self, n: int = 4) -> str:
         """获取格式化的对话历史字符串（用于 Agent prompt）"""
         messages = self.get_last_n_messages(n)

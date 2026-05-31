@@ -86,6 +86,28 @@ class ConversationSessionManager:
         )
         return sessions
 
+    def search_all_sessions(self, keyword: str) -> list:
+        """在所有会话中按关键词搜索消息。
+        返回匹配的消息列表，每条包含 session 信息。
+        """
+        all_results = []
+        for session in self.list_sessions():
+            try:
+                data = json.loads(session.file_path.read_text(encoding="utf-8"))
+                for i, msg in enumerate(data.get("messages", [])):
+                    if keyword.lower() in msg.get("content", "").lower():
+                        all_results.append({
+                            "session": session.name,
+                            "session_file": str(session.file_path),
+                            "index": i,
+                            "role": msg["role"],
+                            "content": msg["content"],
+                            "timestamp": msg.get("timestamp", ""),
+                        })
+            except Exception:
+                pass
+        return all_results
+
     def create_session(self, display_name: Optional[str] = None) -> Path:
         base_name = self._slugify(display_name or f"session-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
         candidate = self.sessions_dir / f"{base_name}.json"

@@ -1,4 +1,5 @@
 import tempfile
+import json
 from pathlib import Path
 from tools.session_manager import ConversationSessionManager, SessionInfo
 
@@ -74,3 +75,73 @@ class TestSessionManager:
     def test_delete_nonexistent(self):
         mgr, tmp = self._make_manager()
         assert mgr.delete_session(Path("/nonexistent/path.json")) is False
+
+    def test_search_all_sessions_finds_match(self):
+        mgr, tmp = self._make_manager()
+        path1 = mgr.create_session("test1")
+        path1.write_text(
+            json.dumps({"messages": [
+                {"role": "user", "content": "什么是 BERT？"},
+                {"role": "assistant", "content": "BERT 是..."},
+            ]}),
+            encoding="utf-8",
+        )
+        path2 = mgr.create_session("test2")
+        path2.write_text(
+            json.dumps({"messages": [
+                {"role": "user", "content": "解释 Transformer"},
+            ]}),
+            encoding="utf-8",
+        )
+        results = mgr.search_all_sessions("BERT")
+        assert len(results) == 2
+        assert results[0]["session"] in ("test1", "test2")
+        assert "session_file" in results[0]
+
+    def test_search_all_sessions_case_insensitive(self):
+        mgr, tmp = self._make_manager()
+        path = mgr.create_session("test")
+        path.write_text(
+            json.dumps({"messages": [
+                {"role": "user", "content": "Hello World"},
+            ]}),
+            encoding="utf-8",
+        )
+        results = mgr.search_all_sessions("hello")
+        assert len(results) == 1
+
+    def test_search_all_sessions_no_match(self):
+        mgr, tmp = self._make_manager()
+        path = mgr.create_session("test")
+        path.write_text(
+            json.dumps({"messages": [
+                {"role": "user", "content": "BERT"},
+            ]}),
+            encoding="utf-8",
+        )
+        results = mgr.search_all_sessions("Transformer")
+        assert len(results) == 0
+
+    def test_search_all_sessions_empty(self):
+        mgr, tmp = self._make_manager()
+        results = mgr.search_all_sessions("anything")
+        assert len(results) == 0
+
+    def test_search_all_sessions_has_required_fields(self):
+        mgr, tmp = self._make_manager()
+        path = mgr.create_session("test")
+        path.write_text(
+            json.dumps({"messages": [
+                {"role": "user", "content": "test message", "timestamp": "2026-01-01T00:00:00"},
+            ]}),
+            encoding="utf-8",
+        )
+        results = mgr.search_all_sessions("test")
+        assert len(results) == 1
+        r = results[0]
+        assert r["session"] == "test"
+        assert r["role"] == "user"
+        assert r["content"] == "test message"
+        assert r["index"] == 0
+        assert r["timestamp"] == "2026-01-01T00:00:00"
+        assert r["session_file"] == str(path)

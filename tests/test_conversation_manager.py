@@ -101,3 +101,44 @@ class TestConversationManager:
         assert "No previous conversation history" in ctx
         path.unlink(missing_ok=True)
 
+    def test_search_messages_finds_match(self):
+        mgr, path = self._make_mgr()
+        mgr.add_message("user", "什么是 BERT 模型？")
+        mgr.add_message("assistant", "BERT 是双向编码器表示...")
+        mgr.add_message("user", "Transformer 的注意力机制")
+        results = mgr.search_messages("BERT")
+        assert len(results) == 2
+        assert results[0]["index"] == 0
+        assert results[0]["role"] == "user"
+        assert results[1]["index"] == 1
+        assert results[1]["role"] == "assistant"
+        path.unlink(missing_ok=True)
+
+    def test_search_messages_case_insensitive(self):
+        mgr, path = self._make_mgr()
+        mgr.add_message("user", "Hello World")
+        results = mgr.search_messages("hello")
+        assert len(results) == 1
+        path.unlink(missing_ok=True)
+
+    def test_search_messages_no_match(self):
+        mgr, path = self._make_mgr()
+        mgr.add_message("user", "BERT 是什么")
+        results = mgr.search_messages("CNN")
+        assert len(results) == 0
+        path.unlink(missing_ok=True)
+
+    def test_search_messages_empty_history(self):
+        mgr, path = self._make_mgr()
+        results = mgr.search_messages("anything")
+        assert len(results) == 0
+        path.unlink(missing_ok=True)
+
+    def test_search_messages_has_timestamp(self):
+        mgr, path = self._make_mgr()
+        mgr.add_message("user", "test")
+        results = mgr.search_messages("test")
+        assert len(results) == 1
+        assert "timestamp" in results[0]
+        path.unlink(missing_ok=True)
+

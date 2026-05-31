@@ -36,16 +36,18 @@ const fileInput = document.getElementById('fileInput');
 // Buttons
 const btnSessions = document.getElementById('btnSessions');
 const btnExportChat = document.getElementById('btnExportChat');
-const locationInput = document.getElementById('locationInput');
-const btnSetLocation = document.getElementById('btnSetLocation');
-const btnDetectLocation = document.getElementById('btnDetectLocation');
-const locationStatus = document.getElementById('locationStatus');
 const btnClearHistory = document.getElementById('btnClearHistory');
 const btnClearCache = document.getElementById('btnClearCache');
 const btnCreateSession = document.getElementById('btnCreateSession');
 const btnToggleWeb = document.getElementById('btnToggleWeb');
 const webSearchLabel = document.getElementById('webSearchLabel');
 const newSessionName = document.getElementById('newSessionName');
+
+// Search
+const searchInput = document.getElementById('searchInput');
+const btnSearch = document.getElementById('btnSearch');
+const searchAllSessions = document.getElementById('searchAllSessions');
+const searchResults = document.getElementById('searchResults');
 
 // Web search toggle state
 let useWebSearch = true;
@@ -64,11 +66,13 @@ const TIPS = [
 
 let isProcessing = false;
 let currentSessionLabel = 'Loading...';
+let currentSessionFile = '';
 let activeEventSource = null;
 let elapsedTimer = null;
 let elapsedSeconds = 0;
 let tipIndex = 0;
 let currentLoadingMsg = null;  // track the inline loading bubble
+let currentMessageIndex = 0;   // counter for data-index on messages
 
 // ============================================================================
 // Event Listeners
@@ -92,34 +96,15 @@ function setupEventListeners() {
         messageInput.addEventListener('keydown', handleMessageInputKeydown);
     }
 
-    // Location
-    if (locationStatus) {
-        const saved = localStorage.getItem('user_location');
-        if (saved) {
-            locationStatus.textContent = saved;
-            if (locationInput) locationInput.value = saved;
-        }
-    }
+    // Auto-detect location on page load
+    detectLocation();
 
-    if (btnDetectLocation) {
-        btnDetectLocation.addEventListener('click', detectLocation);
-    }
-
-    if (btnSetLocation && locationInput) {
-        btnSetLocation.addEventListener('click', () => {
-            const loc = locationInput.value.trim();
-            localStorage.setItem('user_location', loc);
-            if (locationStatus) locationStatus.textContent = loc || '未检测';
-            showToast(loc ? `📍 位置已设为 ${loc}` : '📍 位置已清除', 'success');
+    // Search
+    if (btnSearch && searchInput) {
+        btnSearch.addEventListener('click', searchHistory);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchHistory();
         });
-        locationInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') btnSetLocation.click();
-        });
-    }
-
-    // Auto-detect on page load if no saved location
-    if (btnDetectLocation && !localStorage.getItem('user_location')) {
-        detectLocation();
     }
 
     // Session management
@@ -137,6 +122,9 @@ function setupEventListeners() {
 
     // Cache
     btnClearCache.addEventListener('click', clearCache);
+
+    // Web search toggle
+    if (btnToggleWeb) btnToggleWeb.addEventListener('click', toggleWebSearch);
 
     // Modal close buttons
     document.querySelectorAll('.modal-close').forEach(btn => {
@@ -468,6 +456,7 @@ function addMessageToChat(role, content, badge = null, badgeText = null, exportN
     // Create message element
     const messageEl = document.createElement('div');
     messageEl.className = `message ${role}`;
+    messageEl.dataset.index = currentMessageIndex++;
 
     // Avatar
     const avatarEl = document.createElement('div');
@@ -779,9 +768,10 @@ async function switchSession(filePath) {
 
         if (data.success) {
             currentSessionLabel = data.session_label;
+            currentSessionFile = filePath;
             currentSessionEl.textContent = currentSessionLabel;
             messageCountEl.textContent = data.message_count;
-            
+
             sessionsModal.classList.add('hidden');
             showToast('✅ 会话已切换', 'success');
             await loadChatHistory();
@@ -1157,6 +1147,16 @@ async function updateStatus() {
     } catch (error) {
         console.error('Error updating status:', error);
     }
+    // Also fetch current session file path
+    try {
+        const resp = await fetch('/api/sessions');
+        const d = await resp.json();
+        if (d.success) {
+            currentSessionFile = d.current_session || '';
+        }
+    } catch (e) {
+        console.error('Error getting current session file:', e);
+    }
 }
 
 async function loadInitialData() {
@@ -1207,6 +1207,7 @@ async function loadChatHistory() {
         }
 
         // Render each message in history
+        currentMessageIndex = 0;
         data.history.forEach(msg => {
             addMessageToChat(msg.role, msg.content, null, null, null);
         });
@@ -1249,17 +1250,13 @@ function showToast(message, type = 'info') {
 // ============================================================================
 
 function detectLocation() {
-    if (!navigator.geolocation) {
-        if (locationStatus) locationStatus.textContent = '不支持定位';
-        return;
-    }
-    if (locationStatus) locationStatus.textContent = '检测中...';
+    if (!navigator.geolocation) return;
+    if (localStorage.getItem('user_location')) return; // already detected
 
     navigator.geolocation.getCurrentPosition(
         async (pos) => {
             const { latitude, longitude } = pos.coords;
             try {
-                // Reverse geocode via Nominatim (free, no key required)
                 const resp = await fetch(
                     `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=zh`,
                     { headers: { 'User-Agent': 'LectureCrewLLM/1.0' } }
@@ -1268,24 +1265,119 @@ function detectLocation() {
                 const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || '';
                 const country = data.address?.country || '';
                 const loc = city ? `${city}, ${country}` : `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
-
                 localStorage.setItem('user_location', loc);
-                if (locationInput) locationInput.value = loc;
-                if (locationStatus) locationStatus.textContent = loc;
-                showToast(`📍 已检测到位置：${loc}`, 'success');
             } catch (e) {
-                // Fallback: use coordinates directly
                 const loc = `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
                 localStorage.setItem('user_location', loc);
-                if (locationStatus) locationStatus.textContent = loc;
             }
         },
         (err) => {
-            if (locationStatus) locationStatus.textContent = '定位失败';
             console.warn('Geolocation error:', err.message);
         },
         { enableHighAccuracy: true, timeout: 10000 }
     );
+}
+
+async function searchHistory() {
+    const keyword = searchInput.value.trim();
+    if (!keyword) {
+        searchResults.innerHTML = '<p class="search-empty">请输入搜索关键词</p>';
+        return;
+    }
+
+    const all = searchAllSessions ? searchAllSessions.checked : false;
+    try {
+        const resp = await fetch(`/api/history/search?q=${encodeURIComponent(keyword)}&all=${all}`);
+        const data = await resp.json();
+
+        if (!data.success) {
+            searchResults.innerHTML = `<p class="search-empty">搜索失败：${escapeHtml(data.error)}</p>`;
+            return;
+        }
+
+        if (data.count === 0) {
+            searchResults.innerHTML = '<p class="search-empty">未找到匹配的消息</p>';
+            return;
+        }
+
+        searchResults.innerHTML = `<p class="search-count">共 ${data.count} 条匹配</p>`;
+        data.results.forEach(item => {
+            const el = document.createElement('div');
+            el.className = 'search-result-item';
+            el.dataset.sessionFile = item.session_file || '';
+            el.dataset.msgIndex = item.index;
+            el.title = '点击跳转到此消息';
+            const roleTag = item.role === 'user' ? '👤 你' : '🤖 助手';
+            const sessionTag = all && item.session ? ` [${escapeHtml(item.session)}]` : '';
+            const preview = item.content.length > 100
+                ? escapeHtml(item.content.substring(0, 100)) + '...'
+                : escapeHtml(item.content);
+            el.innerHTML = `
+                <div class="search-result-role">${roleTag}${sessionTag} · #${item.index}</div>
+                <div class="search-result-content">${preview}</div>
+            `;
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sf = el.dataset.sessionFile || '';
+                const idx = parseInt(el.dataset.msgIndex, 10);
+                console.log('Search result clicked: sessionFile=' + sf + ' index=' + idx);
+                jumpToMessage(sf, idx).catch(err => {
+                    console.error('jumpToMessage failed:', err);
+                    showToast('跳转失败：' + err.message, 'error');
+                });
+            });
+            searchResults.appendChild(el);
+        });
+    } catch (error) {
+        console.error('Search error:', error);
+        searchResults.innerHTML = '<p class="search-empty">搜索请求失败</p>';
+    }
+}
+
+async function jumpToMessage(sessionFile, index) {
+    console.log('jumpToMessage called: sessionFile=' + sessionFile + ' index=' + index + ' currentSessionFile=' + currentSessionFile);
+
+    // If from a different session, switch first
+    if (sessionFile && sessionFile !== currentSessionFile) {
+        console.log('Switching session from ' + currentSessionFile + ' to ' + sessionFile);
+        try {
+            const response = await fetch(`/api/sessions/${encodeURIComponent(sessionFile)}`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (!data.success) {
+                showToast('切换会话失败', 'error');
+                return;
+            }
+            currentSessionLabel = data.session_label;
+            currentSessionFile = sessionFile;
+            currentSessionEl.textContent = currentSessionLabel;
+            messageCountEl.textContent = data.message_count;
+            await loadChatHistory();
+        } catch (e) {
+            console.error('Session switch error:', e);
+            showToast('切换会话失败', 'error');
+            return;
+        }
+    }
+
+    // Find and scroll to the message
+    const target = chatContainer.querySelector(`.message[data-index="${index}"]`);
+    console.log('Looking for .message[data-index="' + index + '"], found:', !!target);
+    if (!target) {
+        showToast('未找到该消息（可能已被清除）', 'warning');
+        return;
+    }
+
+    // Scroll to the message (small delay ensures DOM is ready)
+    setTimeout(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Highlight animation
+        target.classList.add('highlight-flash');
+        setTimeout(() => target.classList.remove('highlight-flash'), 1500);
+    }, 100);
+
+    showToast('📍 已跳转到消息 #' + index, 'success');
 }
 
 function toggleWebSearch() {

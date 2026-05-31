@@ -327,6 +327,21 @@ def api_clear_history():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
+@app.route('/api/history/search', methods=['GET'])
+def api_search_history():
+    """搜索对话历史。q=关键词, all=true 搜索所有会话。"""
+    q = request.args.get('q', '').strip()
+    search_all = request.args.get('all', 'false').lower() == 'true'
+    if not q:
+        return jsonify({'success': False, 'error': '搜索词不能为空'}), 400
+    if search_all:
+        results = session_manager.search_all_sessions(q)
+    else:
+        conv_mgr = get_conversation_manager_from_session()
+        results = conv_mgr.search_messages(q)
+    return jsonify({'success': True, 'results': results, 'count': len(results)})
+
+
 @app.route('/api/cache', methods=['GET'])
 def api_get_cache():
     try:
