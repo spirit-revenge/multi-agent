@@ -447,9 +447,9 @@ def api_upload_knowledge():
         dest = Path("knowledge") / uploaded_file.filename
         uploaded_file.save(str(dest))
 
-        # Incremental index
+        # Index just the uploaded file (avoids scanning entire knowledge/ dir)
         try:
-            vector_store.index_files("knowledge", force_reindex=False)
+            vector_store.index_file(str(dest))
         except Exception as e:
             logger.warning("File saved but indexing failed: %s", e)
 

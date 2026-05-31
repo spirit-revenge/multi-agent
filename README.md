@@ -133,7 +133,7 @@ python main.py
 
 ```bash
 python -m pytest tests/ -v
-# 129 tests across 8 modules
+# 131 tests across 8 modules
 ```
 
 ---
@@ -159,7 +159,7 @@ lecture_crewLLM/
 │   └── status_tracker.py        # SSE progress tracker
 │
 ├── tests/
-│   ├── test_rag.py              # RAG tests (31)
+│   ├── test_rag.py              # RAG tests (37)
 │   ├── test_answer_cache.py     # Cache tests (12)
 │   ├── test_conversation_manager.py  # Conversation tests (16)
 │   ├── test_session_manager.py       # Session tests (15)
@@ -245,14 +245,14 @@ lecture_crewLLM/
 
 | Module | Count | Coverage |
 |--------|-------|----------|
-| `test_rag.py` | 35 | Semantic chunking, table conversion, document dispatch, image captioning, vector CRUD, hybrid retrieval, web→RAG indexing |
+| `test_rag.py` | 37 | Semantic chunking, table conversion, document dispatch, image captioning, vector CRUD, hybrid retrieval, web→RAG indexing, single-file indexing |
 | `test_answer_cache.py` | 12 | Cache hit/expiry/overwrite, punctuation tolerance, stopword filtering, jieba semantic matching |
 | `test_conversation_manager.py` | 16 | Message CRUD, persistence, context formatting, search |
 | `test_session_manager.py` | 15 | Session create/list/label/delete, cross-session search |
 | `test_status_tracker.py` | 6 | SSE progress tracking, concurrency |
 | `test_local_file_tool.py` | 3 | PDF/PPTX reading, missing file handling |
 | `test_web_api.py` | 42 | Flask API + HTML template + SSE + chat + session/knowledge/image endpoints |
-| **Total** | **129** | All passing |
+| **Total** | **131** | All passing |
 
 ---
 

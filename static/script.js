@@ -424,6 +424,7 @@ async function sendMessage() {
             showToast(toastMsg, 'success');
 
             updateStatus();
+            loadCacheStats();
         } else {
             showToast('错误：' + data.error, 'error');
             const lastMessage = chatContainer.lastElementChild;
@@ -775,6 +776,8 @@ async function switchSession(filePath) {
             sessionsModal.classList.add('hidden');
             showToast('✅ 会话已切换', 'success');
             await loadChatHistory();
+            loadKnowledge();
+            loadCacheStats();
         }
     } catch (error) {
         console.error('Error switching session:', error);
@@ -804,6 +807,8 @@ async function createNewSession() {
             showToast('✅ 新会话已创建', 'success');
             await loadSessions();
             await loadChatHistory();
+            loadKnowledge();
+            loadCacheStats();
         }
     } catch (error) {
         console.error('Error creating session:', error);
@@ -831,6 +836,8 @@ async function deleteSession(filePath) {
             await loadSessions();
             await updateStatus();
             await loadChatHistory();
+            loadKnowledge();
+            loadCacheStats();
         } else {
             showToast('错误：' + data.error, 'error');
         }
@@ -1116,9 +1123,8 @@ async function clearCache() {
         const data = await response.json();
 
         if (data.success) {
-            cacheCountEl.textContent = '0';
-            cacheValidEl.textContent = '0';
             showToast('✅ 缓存已清除', 'success');
+            loadCacheStats();
         }
     } catch (error) {
         console.error('Error clearing cache:', error);

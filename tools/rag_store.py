@@ -351,6 +351,38 @@ class LectureVectorStore:
     # Indexing (single file or all files)
     # ------------------------------------------------------------------
 
+    def index_file(self, file_path: str):
+        """Index a single file directly (no directory scan).
+
+        Much faster than ``index_files()`` for single uploads because it
+        skips the SHA256 scan of every file in the folder.
+
+        Args:
+            file_path: Absolute or relative path to a PDF/PPTX/DOCX file.
+        """
+        fp = Path(file_path)
+        if not fp.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        ext = fp.suffix.lower()
+        if ext not in ('.pdf', '.pptx', '.docx'):
+            raise ValueError(f"Unsupported file type: {ext}")
+
+        logger.info("Indexing single file: %s", fp.name)
+        self._index_single_file(fp)
+
+        # Update file hash so future index_files() skips it
+        try:
+            f_hash = self._get_file_hash(str(fp))
+            hashes = self._load_file_hashes()
+            hashes[str(fp)] = f_hash
+            self._save_file_hashes(hashes)
+        except Exception:
+            pass
+
+        total = self.collection.count()
+        logger.info("Indexed %s. Total collection entries: %d", fp.name, total)
+
     def index_files(
         self,
         folder_path: str,

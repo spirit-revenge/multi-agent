@@ -617,6 +617,43 @@ class TestLectureVectorStore:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+    def test_index_file_single_upload(self):
+        """index_file() indexes one file without scanning directory."""
+        store, tmp_dir = self._make_store()
+        store._delete_file_entries = MagicMock()
+        store._get_file_hash = MagicMock(return_value="abc123")
+        store._load_file_hashes = MagicMock(return_value={})
+        store._save_file_hashes = MagicMock()
+
+        # Create a fake PDF file
+        pdf = Path(tmp_dir) / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake pdf")
+
+        # Mock process_document + describe_images_batch
+        with patch("tools.rag_store.process_document") as mock_proc, \
+             patch("tools.rag_store.describe_images_batch", return_value=[]):
+            mock_proc.return_value = {"texts": ["chunk 1", "chunk 2"], "images": [], "tables": []}
+            store.collection.add.return_value = None
+
+            store.index_file(str(pdf))
+
+        # Verify it called collection.add with 2 text chunks
+        assert store.collection.add.called
+        call_args = store.collection.add.call_args[1]
+        assert len(call_args["documents"]) == 2
+        assert store._save_file_hashes.called
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_index_file_rejects_wrong_extension(self):
+        """index_file() raises ValueError for unsupported file types."""
+        store, tmp_dir = self._make_store()
+        txt = Path(tmp_dir) / "notes.txt"
+        txt.write_text("hello")
+        with pytest.raises(ValueError, match="Unsupported"):
+            store.index_file(str(txt))
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @pytest.fixture(autouse=True)
 def cleanup_temp():
     """Clean up temp directories after each test in this file."""
