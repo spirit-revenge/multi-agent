@@ -563,6 +563,60 @@ class TestLectureVectorStore:
             shutil.rmtree(store_dir, ignore_errors=True)
 
 
+    def test_index_web_search_stores_facts(self):
+        """Web search facts are stored with type='web' metadata."""
+        store, tmp_dir = self._make_store()
+        store.collection.get.return_value = {"ids": []}
+        store.collection.add.return_value = None
+
+        facts = ["今天北京天气晴，25°C", "明天多云转阴，22°C"]
+        urls = ["https://weather.example.com/beijing"]
+        store.index_web_search("北京天气", facts, urls)
+
+        # Verify add was called
+        assert store.collection.add.called
+        call_args = store.collection.add.call_args[1]
+        assert len(call_args["ids"]) == 2
+        assert all(m["type"] == "web" for m in call_args["metadatas"])
+        assert all("web_query" in m for m in call_args["metadatas"])
+        assert call_args["metadatas"][0]["web_query"] == "北京天气"
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_index_web_search_skips_empty_facts(self):
+        """Empty facts list should not call collection.add."""
+        store, tmp_dir = self._make_store()
+        store.index_web_search("query", [])
+        assert not store.collection.add.called
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_index_web_search_dedup_same_query(self):
+        """Re-indexing the same query deletes old entries first."""
+        store, tmp_dir = self._make_store()
+        store.collection.get.return_value = {"ids": ["web_abc_0", "web_abc_1"]}
+        store.collection.delete.return_value = None
+        store.collection.add.return_value = None
+
+        store.index_web_search("北京天气", ["fact 1"])
+
+        # Should have called delete for old entries
+        assert store.collection.delete.called
+        store.collection.delete.assert_called_once_with(ids=["web_abc_0", "web_abc_1"])
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_index_web_search_without_urls(self):
+        """URLs default to empty list if not provided."""
+        store, tmp_dir = self._make_store()
+        store.collection.get.return_value = {"ids": []}
+        store.collection.add.return_value = None
+
+        store.index_web_search("query", ["fact 1"])  # no urls arg
+
+        call_args = store.collection.add.call_args[1]
+        meta = call_args["metadatas"][0]
+        assert meta["urls"] == "[]"
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @pytest.fixture(autouse=True)
 def cleanup_temp():
     """Clean up temp directories after each test in this file."""

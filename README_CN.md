@@ -12,8 +12,8 @@
 
 - **多智能体协作** — 意图路由 → RAG 检索 → 相关性验证 → 分析师生成答案，智能编排流程
 - **多模态 RAG** — 从 PDF/PPTX/DOCX 中提取文本（语义分块）、图片（BLIP 描述）、表格（Markdown），统一向量化检索
-- **联网搜索** — Tavily API 实时搜索，支持手动开关，自动缓存（1h TTL）
-- **智能缓存** — 答案缓存（30 天 TTL，标点/停用词容忍）+ 检索缓存 + 搜索缓存，三级缓存避免冗余调用
+- **联网搜索** — Tavily API 实时搜索，支持手动开关，自动缓存（1h TTL），结果持久化到 RAG 供未来查询复用
+- **智能缓存** — 答案缓存（30 天 TTL，标点/停用词容忍）+ 检索缓存 + 搜索缓存 + web→RAG 持久化，四级缓存避免冗余调用
 - **SSE 实时进度** — 4 步进度条 + 计时器 + 轮播提示，Web UI 实时展示执行状态
 - **文件管理** — 上传、删除、重建索引，增量索引仅处理变更文件
 - **多会话管理** — 持久化对话历史，支持会话切换、新建、删除
@@ -56,8 +56,8 @@
   id:        "lecture1_text_3"           # {文件名}_{类型}_{索引}
   document:  "Transformer 的核心是自注意力机制..."
   metadata: {
-    type:        "text"                  # text | image | table
-    source:      "knowledge/lecture1.pptx"
+    type:        "text"                  # text | image | table | web
+    source:      "knowledge/lecture1.pptx"  # 或 "web_search:{hash}"（web 搜索结果）
     chunk_index: 3
     indexed_at:  "2026-05-26T10:30:00"
     image_path:  "images/...png"         # 仅 image 类型
@@ -96,7 +96,7 @@ python main.py       # CLI 模式
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 97 个测试，全部通过
+python -m pytest tests/ -v    # 101 个测试，全部通过
 ```
 
 ---
@@ -198,6 +198,7 @@ lecture_crewLLM/
 | **阈值门控** | 三档阈值（≥0.82 / 0.55-0.82 / ≤0.55） | 减少不必要的 Guard LLM 调用，仅边界案例需要 |
 | **路由策略** | 规则匹配（关键词）→ LLM 兜底 | 天气/新闻等明确问题零 LLM 路由成本 |
 | **缓存归一化** | MD5(去标点+排序+去重 tokens) | "什么是 BERT" ≡ "BERT 是什么" ← 同一缓存命中 |
+| **Web 搜索持久化** | 搜索结果存入 RAG（type="web"） | 相似查询命中 RAG 直接返回，免重新调用 Tavily API |
 
 ---
 
@@ -205,14 +206,14 @@ lecture_crewLLM/
 
 | 模块 | 数量 | 覆盖内容 |
 |------|------|---------|
-| `test_rag.py` | 31 | 语义分块、表格转换、文档分发、图片描述、向量存储 CRUD、混合检索 |
+| `test_rag.py` | 35 | 语义分块、表格转换、文档分发、图片描述、向量存储 CRUD、混合检索、web→RAG 索引 |
 | `test_answer_cache.py` | 12 | 缓存命中/过期/覆盖、标点容忍、停用词过滤、jieba 语义匹配 |
 | `test_conversation_manager.py` | 16 | 消息 CRUD、持久化、上下文格式化、搜索消息 |
 | `test_session_manager.py` | 15 | 会话创建/列表/标签/删除、跨会话搜索 |
 | `test_status_tracker.py` | 6 | SSE 进度追踪、并发安全 |
 | `test_local_file_tool.py` | 3 | PDF/PPTX 读取、文件不存在处理 |
 | `test_web_api.py` | 15 | Flask API 状态/历史/搜索/会话/缓存/知识管理端点 |
-| **总计** | **97** | 全部通过 |
+| **总计** | **101** | 全部通过 |
 
 ---
 

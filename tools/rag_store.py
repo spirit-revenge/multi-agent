@@ -530,6 +530,61 @@ class LectureVectorStore:
         return len(existing_ids)
 
     # ------------------------------------------------------------------
+    # Web search result indexing
+    # ------------------------------------------------------------------
+
+    def index_web_search(self, query: str, facts: list, urls: list = None):
+        """Index web search results into ChromaDB so future similar queries
+        can retrieve them via the RAG pipeline.
+
+        Uses ``type="web"`` metadata so results are distinguishable from
+        lecture content.  Old entries for the same query are deleted before
+        re-indexing (dedup by query hash).
+        """
+        if not facts:
+            return
+
+        if urls is None:
+            urls = []
+
+        timestamp = datetime.now().isoformat(timespec="seconds")
+        query_hash = hashlib.md5(query.encode()).hexdigest()[:12]
+        source = f"web_search:{query_hash}"
+
+        # Delete old entries for this query (dedup)
+        try:
+            existing = self.collection.get(where={"source": source})
+            existing_ids = existing.get("ids", [])
+            if existing_ids:
+                self.collection.delete(ids=existing_ids)
+        except Exception:
+            pass
+
+        ids = []
+        documents = []
+        metadatas = []
+
+        for i, fact in enumerate(facts):
+            fact_text = fact.strip()
+            if not fact_text:
+                continue
+            ids.append(f"web_{query_hash}_{i}")
+            documents.append(fact_text)
+            metadatas.append({
+                "type": "web",
+                "source": source,
+                "chunk_index": i,
+                "indexed_at": timestamp,
+                "web_query": query,
+                "urls": json.dumps(urls, ensure_ascii=False),
+            })
+
+        if ids:
+            self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
+            _bm25._dirty = True
+            logger.info("Indexed %d web search results for: %s", len(ids), query[:60])
+
+    # ------------------------------------------------------------------
     # Retrieval
     # ------------------------------------------------------------------
 

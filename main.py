@@ -381,6 +381,17 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 
         search_context = tavily_direct_search(user_question)
 
+        # Index web search results into RAG for future queries
+        try:
+            import json as _json
+            parsed = _json.loads(search_context)
+            facts = parsed.get("facts", [])
+            urls = parsed.get("urls", [])
+            if facts:
+                vector_store.index_web_search(user_question, facts, urls)
+        except Exception:
+            pass
+
         if task_id:
             status_tracker.update(task_id, "generating", "正在生成答案...")
 
@@ -443,6 +454,18 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
         status_tracker.update(task_id, "searching", "正在搜索网络资源...")
 
     search_context = tavily_direct_search(user_question)
+
+    # Index web search results into RAG for future queries
+    try:
+        import json as _json
+        parsed = _json.loads(search_context)
+        facts = parsed.get("facts", [])
+        urls_list = parsed.get("urls", [])
+        if facts:
+            vector_store.index_web_search(user_question, facts, urls_list)
+    except Exception:
+        pass
+
     rag_display = rag_context if rag_context else "向量库中未找到相关的讲座内容。"
 
     if task_id:

@@ -12,8 +12,8 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 
 - **Multi-Agent Architecture** — Intent routing → RAG retrieval → relevance verification → analyst, intelligent orchestration
 - **Multi-Modal RAG** — Extracts text (semantic chunking), images (BLIP captions), and tables (Markdown) from PDF/PPTX/DOCX
-- **Web Search** — Tavily API real-time search, toggle on/off, auto-cached (1h TTL)
-- **Smart Caching** — Answer cache (30-day TTL, punctuation/stopword tolerant) + retrieval cache + search cache — 3-tier caching
+- **Web Search** — Tavily API real-time search, toggle on/off, auto-cached (1h TTL), results persisted to RAG for future queries
+- **Smart Caching** — Answer cache (30-day TTL, punctuation/stopword tolerant) + retrieval cache + search cache + web→RAG persistence — 4-tier caching
 - **SSE Real-Time Progress** — 4-step progress bar + timer + rotating tips, live execution status in Web UI
 - **File Management** — Upload, delete, reindex; incremental indexing processes only changed files
 - **Multi-Session** — Persistent conversation history, session switching, creation, and deletion
@@ -56,8 +56,8 @@ Three-tier threshold to avoid unnecessary LLM calls:
   id:        "lecture1_text_3"           # {stem}_{type}_{index}
   document:  "The core of Transformer is self-attention..."
   metadata: {
-    type:        "text"                  # text | image | table
-    source:      "knowledge/lecture1.pptx"
+    type:        "text"                  # text | image | table | web
+    source:      "knowledge/lecture1.pptx"  # or "web_search:{hash}" for web results
     chunk_index: 3
     indexed_at:  "2026-05-26T10:30:00"
     image_path:  "images/...png"         # image type only
@@ -108,7 +108,7 @@ python main.py
 
 ```bash
 python -m pytest tests/ -v
-# 97 tests across 8 modules
+# 101 tests across 8 modules
 ```
 
 ---
@@ -210,6 +210,7 @@ lecture_crewLLM/
 | **Similarity gate** | 3-tier thresholds (≥0.82 / 0.55-0.82 / ≤0.55) | Reduces unnecessary Guard LLM calls; only borderline cases need it |
 | **Routing** | Rule-based keyword match → LLM fallback | Zero LLM cost for weather/news/stock queries |
 | **Cache normalization** | MD5(dedupe + sort + strip stopwords/punctuation) | "What is BERT?" ≡ "BERT explained" → same cache hit |
+| **Web search persistence** | Store search results in RAG with type="web" | Similar future queries hit RAG instead of re-calling Tavily API |
 
 ---
 
@@ -217,14 +218,14 @@ lecture_crewLLM/
 
 | Module | Count | Coverage |
 |--------|-------|----------|
-| `test_rag.py` | 31 | Semantic chunking, table conversion, document dispatch, image captioning, vector CRUD, hybrid retrieval |
+| `test_rag.py` | 35 | Semantic chunking, table conversion, document dispatch, image captioning, vector CRUD, hybrid retrieval, web→RAG indexing |
 | `test_answer_cache.py` | 12 | Cache hit/expiry/overwrite, punctuation tolerance, stopword filtering, jieba semantic matching |
 | `test_conversation_manager.py` | 16 | Message CRUD, persistence, context formatting, search |
 | `test_session_manager.py` | 15 | Session create/list/label/delete, cross-session search |
 | `test_status_tracker.py` | 6 | SSE progress tracking, concurrency |
 | `test_local_file_tool.py` | 3 | PDF/PPTX reading, missing file handling |
 | `test_web_api.py` | 15 | Flask API status/history/search/session/cache/knowledge endpoints |
-| **Total** | **97** | All passing |
+| **Total** | **101** | All passing |
 
 ---
 
