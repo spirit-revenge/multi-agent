@@ -115,7 +115,7 @@ def _similarity(query: str, cached: str) -> float:
     return (jaccard * 0.5 + coverage * 0.5)
 
 
-_SIMILARITY_THRESHOLD = 0.4  # minimum score to consider a match
+_SIMILARITY_THRESHOLD = 0.65  # minimum score to consider a match
 
 
 class CachedAnswer:
