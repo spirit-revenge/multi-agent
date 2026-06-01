@@ -432,3 +432,150 @@ Fallback 逻辑：旧条目 `image_path` 未命中时，用 `image_filename` 重
 - `test_search_all_sessions_empty` — 空
 - `test_search_all_sessions_has_required_fields` — 字段完整性
 - `test_search_requires_query` / `test_search_empty_query` / `test_search_returns_results` / `test_search_with_all_flag` — API 搜索
+
+---
+
+## 第二阶段 Bug 修复（2026-05-30 至 2026-06-01）
+
+### B001 — logger.debug 缺失 f-string 前缀
+
+**严重度**: 🔴 低 | **状态**: ✅ 已修复
+
+`tools/rag_store.py` 中 14 处 `logger.debug()` 使用了 `{variable}` 语法但缺少 `f` 前缀，运行时输出字面量 `{variable}` 而非变量值。
+
+---
+
+### B002 — `btnReindex` DOM 缺失导致 JS 崩溃
+
+**严重度**: 🔴 致命 | **状态**: ✅ 已修复
+
+`btnReindex` 按钮不在 HTML 中但 JS 引用它 → `null.addEventListener()` TypeError → `setupEventListeners()` 中断 → `loadInitialData()` 不执行 → 页面空白。
+
+**修复**: HTML 添加按钮 + JS `if` 守卫。
+
+---
+
+### B003 — `/api/cache` 500 错误
+
+**严重度**: 🟡 中 | **状态**: ✅ 已修复
+
+`_is_expired()` 被重命名为 `_is_cache_valid()`，但 `/api/cache` 端点仍调用旧名。
+
+---
+
+### B004 — 图片 URL 中 `&` 被解析为查询参数
+
+**严重度**: 🟡 中 | **状态**: ✅ 已修复
+
+`W12_LLM_RAG&Agent.pptx` 中的 `&` 在 URL 中被当作查询参数分隔符 → 404。
+
+**修复**: `_safe_filename()` 替换特殊字符 + `urllib.parse.quote()` + 前端 HTML 属性保护。
+
+---
+
+### B005 — `%%HTML0%%` 占位符未替换
+
+**严重度**: 🔴 致命 | **状态**: ✅ 已修复
+
+斜体正则 `_([^_]+)_` 匹配了 `%%BLOCK_0%%` 中的 `_0_` → `<em>0</em>` → 替换失败。
+
+**修复**: 占位符格式改为无下划线（`%%B0%%` / `%%H0%%`）+ 恢复顺序修正。
+
+---
+
+### B006 — 线程冗余
+
+**严重度**: 🟢 低 | **状态**: ✅ 已修复
+
+`thread.start(); thread.join()` 无并行效果。
+
+---
+
+### B007 — 联网搜索按钮无响应
+
+**严重度**: 🟡 中 | **状态**: ✅ 已修复
+
+`btnToggleWeb` DOM 引用代码通过 `multi_edit` 排队未落地。
+
+---
+
+### B008 — Google Custom Search 403
+
+**严重度**: 🟡 中 | **状态**: 环境配置
+
+Google Cloud 项目未启用 API / API Key 受限 / 未关联结算。
+
+---
+
+### B009 — Agent 编造图片文件名
+
+**严重度**: 🟡 中 | **状态**: ✅ 已修复
+
+Agent 看到 `![](/images/xxx.png)` 格式后自行发明 `transformer_architecture.png`。
+
+**修复**: prompt 增加「不要编造图片文件名」约束。
+
+---
+
+### B010 — `_load_search_cache()` 返回 `None`
+
+**严重度**: 🔴 致命 | **状态**: ✅ 已修复
+
+`cache/search_cache.json` 不存在时返回 `None` → `cache.get(key)` AttributeError → 500。
+
+**修复**: 添加 `return {}`。
+
+---
+
+### B011 — `name "re" is not defined`
+
+**严重度**: 🔴 致命 | **状态**: ✅ 已修复
+
+使用 `re.sub()` 但未 `import re`。
+
+---
+
+### B012 — 加载计时器始终为 0
+
+**严重度**: 🟢 低 | **状态**: ✅ 已修复
+
+`addLoadingMessage()` 和 `startElapsedTimer()` 各自创建 `setInterval`，后者覆盖前者。
+
+**修复**: 统一由 `startElapsedTimer()` 管理。
+
+---
+
+### B013 — `exportConversation()` 重复定义
+
+**严重度**: 🟢 低 | **状态**: ✅ 已修复
+
+函数被定义两次（复制粘贴残留）。
+
+---
+
+### B014 — `DOMContentLoaded` 无错误隔离
+
+**严重度**: 🟡 中 | **状态**: ✅ 已修复
+
+`setupEventListeners()` 抛异常 → `loadInitialData()` 不执行。
+
+**修复**: `try/catch` 包裹 + 确保继续执行。
+
+---
+
+### B015 — `const userLoc` 插入 fetch options 内部
+
+**严重度**: 🔴 致命 | **状态**: ✅ 已修复
+
+`const userLoc = ...` 被错误放在 `fetch({...})` 内部 → SyntaxError。
+
+---
+
+## 性能优化
+
+| # | 优化 | 之前 | 之后 | 节省 |
+|---|------|------|------|------|
+| P001 | Hierarchical → Sequential | 5 次 LLM 调用/次 | 2 次 LLM 调用/次 | ~12s |
+| P002 | Guard 触发范围 | 0.55-0.82 触发 | 0.55-0.70 触发 | 减少 40% Guard 调用 |
+| P003 | Prompt 模板精简 | 长篇 backstory | 一句话 | ~50% 输入 token |
+| P004 | RAG 上限 + 搜索上限 + max_tokens | 4000+4000+无上限 | 2000+800+2048 | 减半 |
