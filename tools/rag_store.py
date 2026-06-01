@@ -476,8 +476,19 @@ class LectureVectorStore:
         # 2. Describe images (batch)
         described = describe_images_batch(result["images"])
 
-        # -- Remove old entries for this file --
-        self._delete_file_entries(file_path)
+        # -- Capture old entries BEFORE adding new ones --
+        old_ids = []
+        old_image_paths = []
+        try:
+            existing = self.collection.get(where={"source": str(file_path)})
+            old_ids = existing.get("ids", [])
+            for meta in existing.get("metadatas", []):
+                if meta and meta.get("type") == "image":
+                    img_path = meta.get("image_path")
+                    if img_path:
+                        old_image_paths.append(img_path)
+        except Exception:
+            pass
 
         # -- Prepare new entries --
         ids: List[str] = []
@@ -530,12 +541,38 @@ class LectureVectorStore:
         # -- Batch add to ChromaDB --
         if ids:
             self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
+
+            # Delete old entries by ID (not by source — that would match the
+            # entries we just added).  Also clean up old image files.
+            removed = 0
+            if old_ids:
+                try:
+                    self.collection.delete(ids=old_ids)
+                    removed = len(old_ids)
+                except Exception as e:
+                    logger.warning("Failed to delete old entries: %s", e)
+            # Only delete old image files that are NOT referenced by new entries.
+            # (When the document hasn't changed, old and new filenames are the
+            # same — deleting them would wipe out the images we just saved.)
+            new_image_paths = {
+                (self.images_directory / fn).resolve() for _, _, fn in described
+                if fn
+            }
+            for img_path in old_image_paths:
+                try:
+                    p = Path(img_path).resolve()
+                    if p not in new_image_paths and p.exists():
+                        p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
             logger.info(
-                "Indexed %s: %d text, %d images, %d tables",
+                "Indexed %s: %d text, %d images, %d tables (removed %d old entries)",
                 file_path.name,
                 len(result["texts"]),
                 len(described),
                 len(result["tables"]),
+                removed,
             )
         else:
             logger.warning("No content extracted from %s", file_path.name)
@@ -666,10 +703,12 @@ class LectureVectorStore:
             List of dicts with keys: content, source, type, chunk_index, indexed_at,
             distance, (image_path if type=image).
         """
-        # 1. Check retrieval cache first
-        cached = retrieval_cache.get(query)
+        # 1. Check retrieval cache first (key includes content_type to avoid
+        #    mixing results from different type filters)
+        cache_key = f"{query}|{content_type or 'all'}"
+        cached = retrieval_cache.get(cache_key)
         if cached is not None:
-            logger.debug("Retrieval cache hit: %s", query[:40])
+            logger.debug("Retrieval cache hit: %s", cache_key[:60])
             return cached
 
         # 2. Apply query rewrite (expand abbreviations)
@@ -755,7 +794,13 @@ class LectureVectorStore:
                     entry["similarity"] = 0.55
 
         # 6. Cache the result
-        retrieval_cache.set(query, entries)
+        retrieval_cache.set(cache_key, entries)
+        logger.info(
+            "RAG retrieve: query='%s' type=%s → %d results (top sim=%.4f, types=%s)",
+            query[:60], content_type or 'all', len(entries),
+            entries[0]['similarity'] if entries else 0,
+            [e['type'] for e in entries],
+        )
         return entries
 
     @staticmethod
@@ -832,6 +877,11 @@ class LectureVectorStore:
                 context += "\n\n"
             text_idx += 1
 
+        img_ref_count = context.count('![](/images/')
+        if img_ref_count > 0:
+            logger.info("format_chunks_as_context: generated %d image refs", img_ref_count)
+        else:
+            logger.info("format_chunks_as_context: NO image refs in output (entries=%d)", len(deduped))
         return context
 
     # ------------------------------------------------------------------

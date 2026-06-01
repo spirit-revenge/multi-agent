@@ -368,7 +368,8 @@ def _format_rag_metrics(metrics: dict) -> str:
 
 import re as _image_re
 
-_VALID_IMAGE_DIR = Path("images")
+_VALID_IMAGE_DIR = Path("images").resolve()
+from urllib.parse import unquote as _url_unquote
 
 
 def _strip_invalid_images(answer: str) -> str:
@@ -378,15 +379,45 @@ def _strip_invalid_images(answer: str) -> str:
     ``ffccdd88087a.png``).  This function checks every image reference and
     drops those that point to nonexistent files.
     """
-    def _check(m):
-        full_path = m.group(0)
-        fname = m.group(2)
-        if (_VALID_IMAGE_DIR / fname).exists():
-            return full_path   # valid → keep
-        logger.debug("Stripping hallucinated image: %s", full_path)
-        return ""             # invalid → remove
+    kept = 0
+    stripped = 0
 
-    return _image_re.sub(r'!\[([^\]]*)\]\(/images/([^)]+)\)', _check, answer)
+    def _check(m):
+        nonlocal kept, stripped
+        full_path = m.group(0)
+        fname = _url_unquote(m.group(2))
+        if (_VALID_IMAGE_DIR / fname).exists():
+            kept += 1
+            return full_path
+        stripped += 1
+        logger.info("STRIP invalid image: %s", full_path[:120])
+        return ""
+
+    result = _image_re.sub(r'!\[([^\]]*)\]\(/images/([^)]+)\)', _check, answer)
+    if kept + stripped > 0:
+        logger.info("_strip_invalid_images: kept=%d stripped=%d", kept, stripped)
+    return result
+
+
+def _extract_valid_images(text: str) -> str:
+    """Extract all valid ![](/images/...) references from a text block."""
+    refs = []
+    seen = set()
+    for m in _image_re.finditer(r'!\[([^\]]*)\]\(/images/([^)]+)\)', text):
+        fname = _url_unquote(m.group(2))
+        if (_VALID_IMAGE_DIR / fname).exists() and fname not in seen:
+            seen.add(fname)
+            refs.append(m.group(0))
+    return "\n\n".join(refs)
+
+
+def _finalize_answer(raw_answer: str, rag_context: str) -> str:
+    """Clean hallucinated image refs, then re-append any valid ones from RAG."""
+    cleaned = _strip_invalid_images(raw_answer)
+    valid_images = _extract_valid_images(rag_context or "")
+    if valid_images:
+        cleaned = cleaned.rstrip() + "\n\n---\n\n**相关图片：**\n\n" + valid_images
+    return cleaned
 
 
 # --- 4. Run Crew ---
@@ -443,13 +474,22 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
         if task_id:
             status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
 
-        # Visual intent → retrieve image-type entries (BLIP descriptions + OCR)
-        content_type = "image" if intent == "visual" else None
+        # Visual intent → retrieve image-type entries only (BLIP descriptions + OCR)
+        if intent == "visual":
+            content_type = "image"
+        else:
+            content_type = None
         try:
             raw_entries = vector_store.retrieve(user_question, k=RAG_K, content_type=content_type)
         except Exception as e:
             logger.warning("RAG retrieval failed: %s", e)
             raw_entries = []
+
+        # When web search is OFF, filter out type="web" entries so the LLM
+        # doesn't hallucinate "（图片来源：网络搜索结果）" from stale web data.
+        if not use_web_search and raw_entries:
+            raw_entries = [e for e in raw_entries if e.get("type") != "web"]
+            logger.info("Filtered web entries (web search OFF): %d remaining", len(raw_entries))
 
         # Build base metrics from retrieval results
         if raw_entries:
@@ -463,19 +503,21 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 
             max_sim = max(sims)
 
-            # Threshold gating: skip LLM for clear cases
-            if max_sim >= 0.82:
-                # High confidence → format directly, no LLM guard call
+            # Visual intent: image entries have naturally low similarity
+            # (BLIP descriptions are generic English).  Skip the gate.
+            if intent == "visual":
+                rag_context = vector_store.format_chunks_as_context(raw_entries)
+                rag_metrics["gate_decision"] = "visual_skip"
+                rag_metrics["effective_count"] = len(raw_entries)
+            elif max_sim >= 0.82:
                 rag_context = vector_store.format_chunks_as_context(raw_entries)
                 rag_metrics["gate_decision"] = "high"
                 rag_metrics["effective_count"] = len(raw_entries)
             elif max_sim <= 0.45:
-                # Low confidence → skip entirely, no LLM guard call
                 rag_context = ""
                 rag_metrics["gate_decision"] = "low"
                 rag_metrics["effective_count"] = 0
             else:
-                # Boundary case → call grounding_check LLM
                 rag_metrics["gate_decision"] = "guard"
                 raw_rag = vector_store.format_chunks_as_context(raw_entries)
                 rag_result = grounding_check(user_question, raw_rag)
@@ -494,6 +536,26 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
         # Hard token cap
         if rag_context and len(rag_context) > MAX_RAG_CHARS:
             rag_context = rag_context[:MAX_RAG_CHARS] + "\n\n[内容已截断]"
+
+        # ---- Step 2b: Always fetch image entries alongside text results ----
+        if intent in ("lecture", "hybrid", "unknown"):
+            try:
+                img_entries = vector_store.retrieve(user_question, k=2, content_type="image")
+                if img_entries:
+                    img_context = vector_store.format_chunks_as_context(img_entries)
+                    if img_context:
+                        img_refs = img_context.count('![](/images/')
+                        logger.info(
+                            "Step2b image fallback: %d entries, %d image refs in context",
+                            len(img_entries), img_refs,
+                        )
+                        if rag_context:
+                            rag_context += "\n\n--- 以下为相关图片内容 ---\n\n" + img_context
+                        else:
+                            rag_context = "以下为相关图片内容：\n\n" + img_context
+            except Exception as e:
+                logger.warning("Step2b image fallback failed: %s", e)
+                pass
 
     # ---- Step 3: Route execution ----
 
@@ -533,7 +595,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             status_tracker.update(task_id, "complete", "答案已生成！")
         # Web-only query: minimal RAG metrics
         metrics_section = _format_rag_metrics(rag_metrics) if rag_metrics else ""
-        return _strip_invalid_images(str(result)) + metrics_section
+        return _finalize_answer(str(result), rag_context) + metrics_section
 
     # Case Visual: image/diagram/chart queries — use image-type RAG results only
     if intent == "visual":
@@ -575,7 +637,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
         if task_id:
             status_tracker.update(task_id, "complete", "答案已生成！")
         metrics_section = _format_rag_metrics(rag_metrics) if rag_metrics else ""
-        return _strip_invalid_images(str(result)) + metrics_section
+        return _finalize_answer(str(result), rag_context) + metrics_section
 
     # Case B: intent is "lecture" or web search is OFF
     if intent == "lecture" or not use_web_search:
@@ -612,7 +674,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             result = crew.kickoff()
             if task_id:
                 status_tracker.update(task_id, "complete", "答案已生成！")
-            return _strip_invalid_images(str(result)) + _format_rag_metrics(rag_metrics)
+            return _finalize_answer(str(result), rag_context) + _format_rag_metrics(rag_metrics)
 
     # Case C: hybrid or unknown + web search ON → RAG + direct search, no Search Agent
     conv_ctx = conversation_manager.get_summary_context() if conversation_manager and len(conversation_manager) > 0 else ""
@@ -667,7 +729,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
     if task_id:
         status_tracker.update(task_id, "complete", "答案已生成！")
 
-    return _strip_invalid_images(str(result)) + _format_rag_metrics(rag_metrics)
+    return _finalize_answer(str(result), rag_context) + _format_rag_metrics(rag_metrics)
 
 
 # --- 5. CLI helpers (shared with web_ui) ---

@@ -18,6 +18,13 @@
 | 8 | 图片文件名冲突 — 同 stem 覆盖 | 🔴 高 | ✅ 已修复 | 数据 |
 | 9 | 图片 URL 中 `_` → `%5F` | 🟡 中 | ✅ 已修复 | 代码 |
 | 10 | LLM 编造图片路径 → 404 | 🔴 高 | ✅ 已修复 | 安全网 |
+| 11 | 重建索引后数据全部丢失 | 🔴 高 | ✅ 已修复 | 数据 |
+| 12 | 检索缓存不区分 content_type | 🔴 高 | ✅ 已修复 | 算法 |
+| 13 | 中文文件名图片被错误过滤 | 🔴 高 | ✅ 已修复 | 安全网 |
+| 14 | LLM 拒绝复制上下文图片引用 | 🔴 高 | ✅ 已修复 | 后处理 |
+| 15 | Visual 意图图片被门控全杀 | 🔴 高 | ✅ 已修复 | 算法 |
+| 16 | _finalize_answer 500 错误 | 🔴 高 | ✅ 已修复 | 代码 |
+| 17 | 关闭联网仍显示"网络来源" | 🟡 中 | ✅ 已修复 | 算法 |
 | — | `google_search_tool.py` 死代码 | 🟢 低 | ✅ 已删除 | 清理 |
 | — | `PROJECT_SUMMARY.md` 冗余 | 🟢 低 | ✅ 已删除 | 清理 |
 | — | `tests/a.py` 草稿文件 | 🟢 低 | ✅ 已删除 | 清理 |
@@ -407,6 +414,209 @@ LLM 从"猜常见名字"变成了"凭空创造名字"，指令无法完全阻止
 ```
 
 Fallback 逻辑：旧条目 `image_path` 未命中时，用 `image_filename` 重新匹配 `images/` 目录。
+
+---
+
+## Bug #11: 重建索引后 ChromaDB 数据全部丢失
+
+**严重程度**: 🔴 高  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+Web UI 点击「重建索引」后 ChromaDB 条目从几百条变为 0，images/ 目录中 227 个图片文件被删除。
+
+### 根因
+
+三重 Bug 叠加：
+
+1. **_delete_file_entries() 在 collection.add() 之前执行** — 先删后写，add 失败则数据丢失
+
+2. **旧图片清理逻辑删除了新写入的图片** — 文档未变时新旧图片文件名相同（hash 不变），清理旧文件的代码把刚写入的图片也删了
+
+3. **_delete_file_entries() 用 source 匹配删除了自身上下文** — 最初修复时将 delete 移到 add 后，但 `where={"source": ...}` 匹配了刚写入的新条目，导致刚写入的数据被删
+
+### 修复
+
+[`tools/rag_store.py`](tools/rag_store.py):
+
+| # | 修复 | 说明 |
+|---|------|------|
+| 1 | 先捕获 `old_ids`，`collection.add()` 后再 `collection.delete(ids=old_ids)` | 按旧 ID 删除，不触碰新条目 |
+| 2 | 清理旧图片前检查是否在新图片集合中 | 新旧同名时不删 |
+| 3 | `_delete_file_entries()` 保留用于显式删除文件时调用 | 不复用于 reindex |
+
+---
+
+## Bug #12: 检索缓存不区分 content_type 导致 image 检索返回 text/web 条目
+
+**严重程度**: 🔴 高  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+`retrieve("Transformer 架构", content_type="image")` 返回 `type="web"` 和 `type="text"` 条目，而非期望的 `type="image"` 条目。`format_chunks_as_context` 生成零个图片引用。
+
+### 根因
+
+检索缓存的 key 仅为 `query` 文本，不包含 `content_type`：
+
+```python
+cache_key = query                                    # 旧
+cached = retrieval_cache.get(cache_key)              # "Transformer 架构" → 旧缓存
+```
+
+首次查询 `content_type=None` 时返回 text/web 条目并缓存。后续 `content_type="image"` 请求命中同一缓存，返回了完全错误的条目类型。
+
+### 修复
+
+缓存 key 改为 `f"{query}|{content_type or 'all'}"`，不同 type 过滤条件独立缓存。
+
+```python
+cache_key = f"{query}|{content_type or 'all'}"       # 新
+```
+
+验证：清除旧缓存后，`content_type="image"` 正确返回 227 个 image 条目。
+
+---
+
+## Bug #13: _strip_invalid_images 将中文文件名图片错误过滤
+
+**严重程度**: 🔴 高  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+答案中正确的 `![](/images/W11_LLM_%E6%8F%90%E7%A4%BA%E8%AF%8D%E5%B7%A5%E7%A8%8B_581af42f_s15_img12.png)` 被 `_strip_invalid_images()` 移除。
+
+### 根因
+
+`quote()` 编码中文为 `%E6%8F%90...`，但 `_strip_invalid_images` 直接用编码后的 filename 检查磁盘存在性：
+
+```python
+Path("images") / "W11_LLM_%E6%8F%90..."  → 文件不存在！
+Path("images") / "W11_LLM_提示词工程..."  → 文件存在（实际文件名）
+```
+
+### 修复
+
+检查前先 `unquote()` 解码：`fname = _url_unquote(m.group(2))`；`_VALID_IMAGE_DIR` 改为 `.resolve()` 绝对路径。
+
+---
+
+## Bug #14: LLM 拒绝复制上下文中的图片引用，总是自行编造路径
+
+**严重程度**: 🔴 高  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+```
+format_chunks_as_context: generated 1 image refs    ← 上下文有 ![](/images/W5_xxx_aad379a4_s7_img0.png)
+→ LLM 输出: ![](/images/ffccdd88087a_3.png)        ← 编造的路径
+→ STRIP invalid image: kept=0 stripped=1
+```
+
+LLM 始终不复制上下文中的真实图片路径，而是自行编造 `哈希_随机数.png` 格式的路径。
+
+### 根因
+
+DeepSeek 模型不完全遵循"只能复制已有路径"的指令。多次尝试强化 prompt 无效。
+
+### 修复 — 后处理强制追加
+
+放弃依赖 LLM 复制图片引用，改为在答案后处理中直接注入：
+
+```python
+def _finalize_answer(raw_answer, rag_context):
+    cleaned = _strip_invalid_images(raw_answer)      # 先清掉编造的
+    valid_images = _extract_valid_images(rag_context) # 从上下文提取真实图片
+    return cleaned + "
+
+**相关图片：**
+
+" + valid_images  # 追加到答案末尾
+```
+
+4 个 return 点全部改用 `_finalize_answer(str(result), rag_context)`。
+
+---
+
+## Bug #15: Visual 意图下 image 条目被相似度门控全部过滤
+
+**严重程度**: 🔴 高  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+用户问"展示 Transformer 的架构图"，Rule Router 正确路由到 `visual` → `content_type="image"`，检索到 3 个 image 条目。但这些条目的 BLIP 描述相似度仅有 ~0.30，全部被 `≤0.45` 跳过门控过滤 → `rag_context` 为空 → `_finalize_answer` 无图可追加。
+
+### 根因
+
+BLIP 描述是通用英文（"a diagram of the proposed vision"），与中文查询的余弦相似度天然很低。门控的 `≤0.45` 阈值将这些 low-similarity 但确实是相关图片的条目全部丢弃。
+
+### 修复
+
+[`main.py:498`](main.py#L498)：Visual 意图下完全跳过相似度门控，所有检索到的 image 条目直接使用。
+
+```python
+if intent == "visual":
+    rag_context = vector_store.format_chunks_as_context(raw_entries)
+    rag_metrics["gate_decision"] = "visual_skip"
+```
+
+---
+
+## Bug #16: _finalize_answer 500 错误 — _url_unquote 作用域错误
+
+**严重程度**: 🔴 高  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+`POST /api/chat` 返回 500。
+
+### 根因
+
+`from urllib.parse import unquote as _url_unquote` 写在 `_strip_invalid_images()` 函数体内，是局部变量。新增的 `_extract_valid_images()` 函数无法访问 → `NameError`。
+
+### 修复
+
+将 import 提升到模块级别，两个函数共享。
+
+---
+
+## Bug #17: 关闭联网搜索后答案仍含"图片来源：网络搜索"
+
+**严重程度**: 🟡 中  
+**发现日期**: 2026-06-01  
+**状态**: ✅ 已修复
+
+### 现象
+
+Web UI 关闭联网搜索开关后提问，答案中出现"（图片来源：网络搜索结果）"。
+
+### 根因
+
+RAG 检索返回了 `type="web"` 条目（之前搜索存入的 Tavily 结果）。这些条目的 content 文本中包含"网络"等词汇，LLM 据此生成错误引用。
+
+### 修复
+
+[`main.py:488`](main.py#L488)：当 `use_web_search=False` 时，过滤掉所有 `type="web"` 条目。
+
+```python
+if not use_web_search and raw_entries:
+    raw_entries = [e for e in raw_entries if e.get("type") != "web"]
+```
+
+---
+
 
 ---
 

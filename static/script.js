@@ -684,9 +684,6 @@ function markdownToHtml(markdown) {
     html = html.replace(/%%H(\d+)%%/g, (_, i) => protectedHtml[parseInt(i)] || '');
     html = html.replace(/%%B(\d+)%%/g, (_, i) => blocks[parseInt(i)] || '');
 
-    console.log("myhtml"+html);
-    console.log(protectedHtml);
-
     return html;
 }
 
@@ -1330,7 +1327,6 @@ async function searchHistory() {
                 e.stopPropagation();
                 const sf = el.dataset.sessionFile || '';
                 const idx = parseInt(el.dataset.msgIndex, 10);
-                console.log('Search result clicked: sessionFile=' + sf + ' index=' + idx);
                 jumpToMessage(sf, idx).catch(err => {
                     console.error('jumpToMessage failed:', err);
                     showToast('跳转失败：' + err.message, 'error');
@@ -1345,11 +1341,9 @@ async function searchHistory() {
 }
 
 async function jumpToMessage(sessionFile, index) {
-    console.log('jumpToMessage called: sessionFile=' + sessionFile + ' index=' + index + ' currentSessionFile=' + currentSessionFile);
 
     // If from a different session, switch first
     if (sessionFile && sessionFile !== currentSessionFile) {
-        console.log('Switching session from ' + currentSessionFile + ' to ' + sessionFile);
         try {
             const response = await fetch(`/api/sessions/${encodeURIComponent(sessionFile)}`, {
                 method: 'POST'
@@ -1373,7 +1367,6 @@ async function jumpToMessage(sessionFile, index) {
 
     // Find and scroll to the message
     const target = chatContainer.querySelector(`.message[data-index="${index}"]`);
-    console.log('Looking for .message[data-index="' + index + '"], found:', !!target);
     if (!target) {
         showToast('未找到该消息（可能已被清除）', 'warning');
         return;

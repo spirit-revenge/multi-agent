@@ -2,7 +2,7 @@
 Image captioning using a local BLIP model via transformers.
 Generates Chinese text descriptions for extracted images.
 
-Also includes an optional OCR layer (pytesseract) to extract embedded text
+Also includes an OCR layer (easyocr) to extract embedded text
 from diagrams, charts, and screenshots — common in lecture slides.
 """
 
@@ -13,40 +13,69 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# OCR (lazy-loaded)
+# OCR (lazy-loaded easyocr)
 # ---------------------------------------------------------------------------
 
-_ocr_available = None  # tri-state: None=unchecked, True=ok, False=unavailable
+_ocr_reader = None
+_ocr_failed = False
+
+
+def _get_ocr_reader():
+    """Lazy-load easyocr reader for Chinese + English text extraction."""
+    global _ocr_reader, _ocr_failed
+
+    if _ocr_failed:
+        return None
+
+    if _ocr_reader is None:
+        try:
+            import easyocr
+            logger.info("Loading easyocr (Chinese + English) — this may take ~10s on first use...")
+            _ocr_reader = easyocr.Reader(['ch_sim', 'en'], gpu=False, verbose=False)
+            logger.info("easyocr reader ready.")
+        except ImportError:
+            _ocr_failed = True
+            logger.info("easyocr not installed — OCR disabled. Install: pip install easyocr")
+            return None
+        except Exception as e:
+            _ocr_failed = True
+            logger.warning("easyocr failed to initialize: %s — OCR disabled", e)
+            return None
+
+    return _ocr_reader
 
 
 def _ocr_extract(image: Image.Image) -> str:
-    """Extract text from image using pytesseract (Chinese + English).
+    """Extract text from image using easyocr (Chinese + English).
 
-    Returns empty string if OCR is unavailable or finds nothing.
+    Returns empty string if OCR is unavailable, fails, or finds nothing.
     """
-    global _ocr_available
-
-    if _ocr_available is False:
+    reader = _get_ocr_reader()
+    if reader is None:
         return ""
 
-    if _ocr_available is None:
-        try:
-            import pytesseract  # noqa: F401
-            _ocr_available = True
-            logger.info("OCR (pytesseract) available — image text extraction enabled")
-        except ImportError:
-            _ocr_available = False
-            logger.info("pytesseract not installed — OCR disabled. Install: pip install pytesseract")
+    try:
+        import numpy as np
+        arr = np.array(image)
+        results = reader.readtext(arr)
+
+        if not results:
             return ""
 
-    try:
-        text = pytesseract.image_to_string(image, lang='chi_sim+eng').strip()
-        # Filter noise: skip if result is too short or only whitespace/punctuation
-        if text and len(text) >= 2:
-            # Truncate to reasonable length
-            if len(text) > 500:
-                text = text[:500] + "..."
-            return text
+        # Collect text with minimum confidence
+        texts = []
+        for _bbox, text, conf in results:
+            if conf >= 0.3 and text.strip():
+                texts.append(text.strip())
+
+        if not texts:
+            return ""
+
+        combined = " ".join(texts)
+        if len(combined) > 500:
+            combined = combined[:500] + "..."
+        return combined
+
     except Exception as e:
         logger.debug("OCR failed for image: %s", e)
 
