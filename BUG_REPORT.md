@@ -435,7 +435,7 @@ Fallback 逻辑：旧条目 `image_path` 未命中时，用 `image_filename` 重
 
 ---
 
-## 第二阶段 Bug 修复（2026-05-30 至 2026-06-01）
+## 第二阶段 Bug 修复
 
 ### B001 — logger.debug 缺失 f-string 前缀
 

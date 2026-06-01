@@ -297,4 +297,4 @@ lecture_crewLLM/
 
 ---
 
-*Last updated: May 2026*
+*Last updated: June 2026*

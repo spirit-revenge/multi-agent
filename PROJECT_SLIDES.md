@@ -270,4 +270,4 @@ python -m pytest tests/ -v   # 131 项，全部通过
 
 ---
 
-*Generated: May 2026 | Tests: 131/131 passing | Python 3.11+*
+*Generated: June 2026 | Tests: 131/131 passing | Python 3.11+*
