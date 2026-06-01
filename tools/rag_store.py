@@ -721,6 +721,25 @@ class LectureVectorStore:
             entries.sort(key=lambda e: e["similarity"], reverse=True)
             entries = entries[:k]
 
+        # 5.5 Keyword boost: if any query term literally appears in the document,
+        #     set a minimum similarity floor of 0.55.  This prevents the gate from
+        #     skipping documents that contain the exact keyword (common with short
+        #     queries like "rag是什么" where embedding similarity is naturally low).
+        import re as _re
+        _query_lower = final_query.lower()
+        # Strip parens/brackets and split into clean tokens
+        _clean_tokens = set(_re.findall(r'[\w一-鿿]+', _query_lower))
+        # Also add the original query terms (before any expansion suffix)
+        _paren_start = _query_lower.find("(")
+        if _paren_start > 0:
+            _clean_tokens.update(_re.findall(r'[\w一-鿿]+', _query_lower[:_paren_start]))
+        for entry in entries:
+            doc_lower = entry.get("content", "").lower()
+            matching_terms = [t for t in _clean_tokens if len(t) >= 2 and t in doc_lower]
+            if matching_terms:
+                if entry["similarity"] < 0.55:
+                    entry["similarity"] = 0.55
+
         # 6. Cache the result
         retrieval_cache.set(query, entries)
         return entries

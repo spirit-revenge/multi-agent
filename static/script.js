@@ -262,6 +262,9 @@ function addLoadingMessage() {
 
     const bubbleEl = document.createElement('div');
     bubbleEl.className = 'message-bubble loading-bubble';
+    const searchStep = useWebSearch
+        ? '<div class="lstep" data-step="searching">🌐 搜索网络资源</div>'
+        : '';
     bubbleEl.innerHTML = `
         <div class="loading-header">
             <span class="loading-spinner"></span>
@@ -270,7 +273,7 @@ function addLoadingMessage() {
         <div class="loading-steps">
             <div class="lstep" data-step="routing">🎯 分析问题意图</div>
             <div class="lstep" data-step="rag">💡 检索讲座知识库</div>
-            <div class="lstep" data-step="searching">🌐 搜索网络资源</div>
+            ${searchStep}
             <div class="lstep" data-step="generating">🧠 生成答案</div>
         </div>
         <div class="loading-elapsed">⏱ 已用 <span class="elapsed-count">0</span> 秒</div>
@@ -1138,6 +1141,7 @@ async function clearCache() {
 
 function initializeUI() {
     messageInput.focus();
+    updateSearchStepVisibility();
 }
 
 async function updateStatus() {
@@ -1386,6 +1390,13 @@ async function jumpToMessage(sessionFile, index) {
     showToast('📍 已跳转到消息 #' + index, 'success');
 }
 
+function updateSearchStepVisibility() {
+    const step = document.getElementById('stepSearching');
+    if (step) {
+        step.style.display = useWebSearch ? '' : 'none';
+    }
+}
+
 function toggleWebSearch() {
     useWebSearch = !useWebSearch;
     if (useWebSearch) {
@@ -1399,6 +1410,7 @@ function toggleWebSearch() {
         btnToggleWeb.title = '点击开启联网搜索';
         webSearchLabel.textContent = '离线';
     }
+    updateSearchStepVisibility();
 }
 
 // ============================================================================

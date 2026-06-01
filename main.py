@@ -288,6 +288,61 @@ def grounding_check(user_question: str, rag_context: str) -> str:
     return rag_context
 
 
+# --- 3.8 RAG Metrics ---
+
+def _format_rag_metrics(metrics: dict) -> str:
+    """Build a Markdown summary of RAG retrieval quality metrics."""
+    if not metrics or metrics.get("retrieved_count", 0) == 0:
+        return ""
+
+    lines = [
+        "",
+        "---",
+        "",
+        "## 📊 RAG 检索质量指标",
+        "",
+        f"| 指标 | 值 |",
+        f"|------|-----|",
+        f"| 检索块数 (k) | {metrics['retrieved_count']} |",
+        f"| 最高相似度 | {metrics['max_similarity']:.4f} |",
+        f"| 平均相似度 | {metrics['mean_similarity']:.4f} |",
+    ]
+
+    # Show all similarity scores
+    scores_str = " → ".join(f"{s:.4f}" for s in metrics.get("similarity_scores", []))
+    lines.append(f"| 各块相似度 | {scores_str} |")
+
+    # Gate decision
+    gate = metrics.get("gate_decision", "unknown")
+    gate_label = {
+        "high": "≥0.82 高置信度（跳过 Guard，直接使用）",
+        "low": "≤0.45 低置信度（跳过，无结果）",
+        "guard": "0.45~0.82 边界案例（触发 Guard 验证）",
+    }.get(gate, gate)
+    lines.append(f"| 门控决策 | {gate_label} |")
+
+    if gate == "guard":
+        guard_verdict = metrics.get("guard_verdict", "N/A")
+        lines.append(f"| Guard 验证结果 | **{guard_verdict}** |")
+
+    # Precision / Recall (pseudo, based on gate)
+    effective = metrics.get("effective_count", 0)
+    retrieved = metrics["retrieved_count"]
+    pseudo_precision = effective / retrieved if retrieved > 0 else 0
+    pseudo_recall = effective / 3  # k=3 fixed
+
+    lines.extend([
+        f"| 有效块数 | {effective} / {retrieved} |",
+        f"| 伪精确率 (Precision@{retrieved}) | {pseudo_precision:.2%}（通过门控的块 / 检索到的块） |",
+        f"| 伪召回率 (Recall@3) | {pseudo_recall:.2%}（通过门控的块 / 3） |",
+        "",
+        "*注：精确率和召回率为近似值。门控决策基于相似度阈值和 Guard LLM 判定。*",
+        "",
+    ])
+
+    return "\n".join(lines)
+
+
 # --- 4. Run Crew ---
 
 def run_crew(folder_path="knowledge", user_question=None, conversation_manager=None,
@@ -336,6 +391,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
     MAX_RAG_CHARS = 2000    # hard character limit (was 4000 — 3 chunks × ~660 chars is plenty)
 
     rag_context = ""
+    rag_metrics = None  # capture retrieval quality metrics
     if intent in ("lecture", "hybrid", "unknown"):
         if task_id:
             status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
@@ -346,27 +402,45 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             logger.warning("RAG retrieval failed: %s", e)
             raw_entries = []
 
+        # Build base metrics from retrieval results
         if raw_entries:
-            max_sim = max(e["similarity"] for e in raw_entries)
+            sims = [e["similarity"] for e in raw_entries]
+            rag_metrics = {
+                "retrieved_count": len(raw_entries),
+                "similarity_scores": sims,
+                "max_similarity": max(sims),
+                "mean_similarity": sum(sims) / len(sims),
+            }
+
+            max_sim = max(sims)
 
             # Threshold gating: skip LLM for clear cases
             if max_sim >= 0.82:
                 # High confidence → format directly, no LLM guard call
                 rag_context = vector_store.format_chunks_as_context(raw_entries)
-            elif max_sim <= 0.55:
+                rag_metrics["gate_decision"] = "high"
+                rag_metrics["effective_count"] = len(raw_entries)
+            elif max_sim <= 0.45:
                 # Low confidence → skip entirely, no LLM guard call
                 rag_context = ""
+                rag_metrics["gate_decision"] = "low"
+                rag_metrics["effective_count"] = 0
             else:
                 # Boundary case → call grounding_check LLM
+                rag_metrics["gate_decision"] = "guard"
                 raw_rag = vector_store.format_chunks_as_context(raw_entries)
                 rag_result = grounding_check(user_question, raw_rag)
 
+                rag_metrics["guard_verdict"] = "RELEVANT" if rag_result != "IRRELEVANT" else "IRRELEVANT"
                 if rag_result == "IRRELEVANT":
                     rag_context = ""
+                    rag_metrics["effective_count"] = 0
                 else:
                     rag_context = rag_result
+                    rag_metrics["effective_count"] = len(raw_entries)
         else:
             rag_context = ""
+            rag_metrics = {"retrieved_count": 0, "similarity_scores": [], "max_similarity": 0, "mean_similarity": 0, "gate_decision": "none", "effective_count": 0}
 
         # Hard token cap
         if rag_context and len(rag_context) > MAX_RAG_CHARS:
@@ -408,7 +482,9 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
         result = crew.kickoff()
         if task_id:
             status_tracker.update(task_id, "complete", "答案已生成！")
-        return str(result)
+        # Web-only query: minimal RAG metrics
+        metrics_section = _format_rag_metrics(rag_metrics) if rag_metrics else ""
+        return str(result) + metrics_section
 
     # Case B: intent is "lecture" or web search is OFF
     if intent == "lecture" or not use_web_search:
@@ -445,7 +521,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             result = crew.kickoff()
             if task_id:
                 status_tracker.update(task_id, "complete", "答案已生成！")
-            return str(result)
+            return str(result) + _format_rag_metrics(rag_metrics)
 
     # Case C: hybrid or unknown + web search ON → RAG + direct search, no Search Agent
     conv_ctx = conversation_manager.get_summary_context() if conversation_manager and len(conversation_manager) > 0 else ""
@@ -500,7 +576,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
     if task_id:
         status_tracker.update(task_id, "complete", "答案已生成！")
 
-    return str(result)
+    return str(result) + _format_rag_metrics(rag_metrics)
 
 
 # --- 5. CLI helpers (shared with web_ui) ---

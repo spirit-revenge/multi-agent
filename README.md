@@ -71,8 +71,8 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 Three-tier threshold to avoid unnecessary LLM calls:
 
 - **≥0.82** → High confidence, skip Guard LLM, send directly to Analyst (saves ~2s)
-- **0.55 ~ 0.82** → Borderline, call Guard Agent for LLM semantic verification
-- **≤0.55** → Low confidence, skip Guard and Analyst (no relevant content)
+- **0.45 ~ 0.82** → Borderline, call Guard Agent for LLM semantic verification
+- **≤0.45** → Low confidence, skip Guard and Analyst (no relevant content)
 
 ### ChromaDB Entry
 
@@ -232,7 +232,7 @@ lecture_crewLLM/
 | **Image retrieval** | BLIP caption → vectorize text | Avoids multi-modal embedding model; 384-dim is sufficient |
 | **Semantic chunking** | Paragraph/heading boundaries, 100-1200 chars | Respects document structure instead of fixed-length splits |
 | **Re-ranking** | Embedding similarity + BM25 fusion (70/30) | Removed CrossEncoder (saves 1-2s/query), BM25 is sufficient |
-| **Similarity gate** | 3-tier thresholds (≥0.82 / 0.55-0.82 / ≤0.55) | Reduces unnecessary Guard LLM calls; only borderline cases need it |
+| **Similarity gate** | 3-tier thresholds (≥0.82 / 0.45-0.82 / ≤0.45) | Reduces unnecessary Guard LLM calls; only borderline cases need it |
 | **Routing** | Rule-based keyword match → LLM fallback | Zero LLM cost for weather/news/stock queries |
 | **Cache normalization** | MD5(dedupe + sort + strip stopwords/punctuation) | "What is BERT?" ≡ "BERT explained" → same cache hit |
 | **Cache similarity threshold** | Jaccard + coverage fusion, threshold 0.65 | Prevents false positive matches like "水原天气" ↔ "明天天气" |
