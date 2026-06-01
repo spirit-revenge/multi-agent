@@ -47,6 +47,12 @@ vector_store = LectureVectorStore(persist_directory="chroma_db", collection_name
 
 # --- 1.5 Rule-Based Router (fast path, no LLM) ---
 
+VISUAL_KEYWORDS = [
+    "架构图", "示意图", "图表", "图片", "流程图",
+    "长什么样", "图示", "图解", "框图", "结构图",
+    "有什么图", "看图", "图中", "图片描述", "展示图",
+]
+
 WEB_KEYWORDS = [
     "天气", "新闻", "股价", "股票", "汇率", "地震",
     "今天", "最新", "刚刚", "当前", "实时",
@@ -54,11 +60,23 @@ WEB_KEYWORDS = [
 ]
 
 def rule_router(question: str) -> str | None:
-    """Fast keyword-based intent classification. Returns None if unsure."""
+    """Fast keyword-based intent normalization. Returns None if unsure.
+
+    Priority: visual > web.  Visual queries need image-type retrieval;
+    web queries skip RAG entirely and go to Tavily.
+    """
     q = question.lower().strip()
+
+    # Visual intent — user is asking for images / diagrams / charts
+    for kw in VISUAL_KEYWORDS:
+        if kw in q:
+            return "visual"
+
+    # Web intent — time-sensitive or real-world information
     for kw in WEB_KEYWORDS:
         if kw in q:
             return "web"
+
     return None
 
 
@@ -181,7 +199,10 @@ def content_analyst_agent():
 2. 如果搜索结果包含 "Error:" 等错误信息，忽略它们，仅使用讲座内容。
 3. 以 **中文 Markdown** 格式输出，使用标题和列表组织内容。
 4. 标注来源——讲座内容标注文件名，网络信息标注 URL。
-5. 如果讲座内容不足以回答问题，请如实说明""",
+5. 如果讲座内容不足以回答问题，请如实说明。
+6. ⚠️ 图片规则：如果检索内容中已经附带了 `![](/images/...)` 图片链接，必须**原样保留**在回答中。
+   **绝对不要自己猜测图片路径**，比如 `幻灯片1.png`、`Slide1.png`、`图片1.png` 等都是错误的。
+   只能复制使用已有的 `![](/images/具体文件名.png)` 格式。""",
         llm=deepseek_llm,
         verbose=False,
         allow_delegation=False,
@@ -189,11 +210,11 @@ def content_analyst_agent():
 
 
 def router_agent():
-    """Agent that classifies user intent into: lecture / web / hybrid / unknown."""
+    """Agent that classifies user intent into: visual / lecture / web / hybrid / unknown."""
     return Agent(
         role="意图路由器",
-        goal="判断用户问题是关于讲座内容、实时信息、还是两者都需要。",
-        backstory="你擅长快速识别用户意图，只输出一个词：lecture（仅讲座）、web（仅网络）、hybrid（两者都需要）、unknown（不确定）。",
+        goal="判断用户问题是关于讲座内容、实时信息、图片图表、还是组合需求。",
+        backstory="你擅长快速识别用户意图，只输出一个词：visual（图片/图表相关）、lecture（仅讲座）、web（仅网络）、hybrid（两者都需要）、unknown（不确定）。",
         llm=router_llm,
         verbose=False,
         allow_delegation=False,
@@ -343,6 +364,31 @@ def _format_rag_metrics(metrics: dict) -> str:
     return "\n".join(lines)
 
 
+# --- 3.9 Answer Post-Processing — strip hallucinated image references ---
+
+import re as _image_re
+
+_VALID_IMAGE_DIR = Path("images")
+
+
+def _strip_invalid_images(answer: str) -> str:
+    """Remove any `![](/images/...)` references where the file doesn't exist.
+
+    The LLM sometimes hallucinates image paths (e.g. ``幻灯片1.png``,
+    ``ffccdd88087a.png``).  This function checks every image reference and
+    drops those that point to nonexistent files.
+    """
+    def _check(m):
+        full_path = m.group(0)
+        fname = m.group(2)
+        if (_VALID_IMAGE_DIR / fname).exists():
+            return full_path   # valid → keep
+        logger.debug("Stripping hallucinated image: %s", full_path)
+        return ""             # invalid → remove
+
+    return _image_re.sub(r'!\[([^\]]*)\]\(/images/([^)]+)\)', _check, answer)
+
+
 # --- 4. Run Crew ---
 
 def run_crew(folder_path="knowledge", user_question=None, conversation_manager=None,
@@ -371,6 +417,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             description=f"""判断以下用户问题属于哪个类别，只输出一个词：
 
 类别说明：
+- visual：关于图片、架构图、示意图、图表、流程图等视觉内容的问题
 - lecture：关于讲座内容、AI/技术概念、课程知识的问题
 - web：关于实时信息、新闻、天气、最新事件的问题
 - hybrid：需要同时参考讲座知识和最新信息的问题
@@ -379,7 +426,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 用户问题：{user_question}
 
 输出（只输出一个类别词）：""",
-            expected_output="lecture 或 web 或 hybrid 或 unknown",
+            expected_output="visual 或 lecture 或 web 或 hybrid 或 unknown",
             agent=router,
         )
         route_crew = Crew(agents=[router], tasks=[route_task], process=Process.sequential, verbose=False)
@@ -392,12 +439,14 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
 
     rag_context = ""
     rag_metrics = None  # capture retrieval quality metrics
-    if intent in ("lecture", "hybrid", "unknown"):
+    if intent in ("lecture", "hybrid", "unknown", "visual"):
         if task_id:
             status_tracker.update(task_id, "rag", "正在检索讲座知识库...")
 
+        # Visual intent → retrieve image-type entries (BLIP descriptions + OCR)
+        content_type = "image" if intent == "visual" else None
         try:
-            raw_entries = vector_store.retrieve(user_question, k=RAG_K)
+            raw_entries = vector_store.retrieve(user_question, k=RAG_K, content_type=content_type)
         except Exception as e:
             logger.warning("RAG retrieval failed: %s", e)
             raw_entries = []
@@ -484,7 +533,49 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             status_tracker.update(task_id, "complete", "答案已生成！")
         # Web-only query: minimal RAG metrics
         metrics_section = _format_rag_metrics(rag_metrics) if rag_metrics else ""
-        return str(result) + metrics_section
+        return _strip_invalid_images(str(result)) + metrics_section
+
+    # Case Visual: image/diagram/chart queries — use image-type RAG results only
+    if intent == "visual":
+        if task_id:
+            status_tracker.update(task_id, "generating", "正在根据图片内容生成答案...")
+
+        if not rag_context:
+            # No matching images found — fall back to general text RAG
+            try:
+                raw_entries = vector_store.retrieve(user_question, k=RAG_K)
+                rag_context = vector_store.format_chunks_as_context(raw_entries) if raw_entries else ""
+            except Exception:
+                rag_context = ""
+
+            if not rag_context:
+                if task_id:
+                    status_tracker.update(task_id, "complete", "无法回答")
+                return None
+
+        conv_ctx = conversation_manager.get_summary_context() if conversation_manager and len(conversation_manager) > 0 else ""
+
+        task_answer = Task(
+            description=f"""用户问题：{user_question}
+
+{conv_ctx}
+
+用户想了解讲座中的图片、架构图或图表内容。以下是检索到的相关内容：
+
+--- 图片内容（RAG 检索）---
+{rag_context}
+
+请根据以上图片描述和内容回答用户问题。如果含有 `![](/images/...)` 图片引用，**必须原样保留在回答中**，不要自己猜测或修改图片路径。""",
+            expected_output="中文 Markdown 回答。",
+            agent=analyst,
+        )
+        crew = Crew(agents=[analyst], tasks=[task_answer],
+                    process=Process.sequential, verbose=False)
+        result = crew.kickoff()
+        if task_id:
+            status_tracker.update(task_id, "complete", "答案已生成！")
+        metrics_section = _format_rag_metrics(rag_metrics) if rag_metrics else ""
+        return _strip_invalid_images(str(result)) + metrics_section
 
     # Case B: intent is "lecture" or web search is OFF
     if intent == "lecture" or not use_web_search:
@@ -521,7 +612,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
             result = crew.kickoff()
             if task_id:
                 status_tracker.update(task_id, "complete", "答案已生成！")
-            return str(result) + _format_rag_metrics(rag_metrics)
+            return _strip_invalid_images(str(result)) + _format_rag_metrics(rag_metrics)
 
     # Case C: hybrid or unknown + web search ON → RAG + direct search, no Search Agent
     conv_ctx = conversation_manager.get_summary_context() if conversation_manager and len(conversation_manager) > 0 else ""
@@ -576,7 +667,7 @@ def run_crew(folder_path="knowledge", user_question=None, conversation_manager=N
     if task_id:
         status_tracker.update(task_id, "complete", "答案已生成！")
 
-    return str(result) + _format_rag_metrics(rag_metrics)
+    return _strip_invalid_images(str(result)) + _format_rag_metrics(rag_metrics)
 
 
 # --- 5. CLI helpers (shared with web_ui) ---

@@ -25,6 +25,22 @@ def _safe_filename(name: str) -> str:
     return safe.strip('_')
 
 
+def _file_path_hash(file_path: str) -> str:
+    """Short hash of the file path to disambiguate files with identical stems."""
+    import hashlib
+    return hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+
+
+def _image_stem(file_path: str) -> str:
+    """Build a unique image filename stem: safe_stem + 8-char path hash.
+
+    Prevents collisions when two files in different directories (or with
+    different Chinese names) produce the same safe stem.
+    """
+    path = Path(file_path)
+    return f"{_safe_filename(path.stem)}_{_file_path_hash(str(path))}"
+
+
 # ============================================================================
 # Semantic chunking
 # ============================================================================
@@ -143,7 +159,7 @@ def _process_pdf(file_path: Path) -> Dict:
                 # Skip tiny images (icons, bullets)
                 if pil_img.width < 50 or pil_img.height < 50:
                     continue
-                img_filename = f"{_safe_filename(file_path.stem)}_p{page_num + 1}_img{img_index}.png"
+                img_filename = f"{_image_stem(str(file_path))}_p{page_num + 1}_img{img_index}.png"
                 images.append((pil_img, img_filename))
             except Exception:
                 logger.debug("Skipping unreadable image on page %d", page_num + 1)
@@ -214,7 +230,7 @@ def _process_pptx(file_path: Path) -> Dict:
                     image_bytes = shape.image.blob
                     pil_img = Image.open(io.BytesIO(image_bytes))
                     if pil_img.width >= 50 and pil_img.height >= 50:
-                        img_filename = f"{_safe_filename(file_path.stem)}_s{slide_idx + 1}_img{len(images)}.png"
+                        img_filename = f"{_image_stem(str(file_path))}_s{slide_idx + 1}_img{len(images)}.png"
                         images.append((pil_img, img_filename))
                 except Exception:
                     pass
@@ -287,7 +303,7 @@ def _process_docx(file_path: Path) -> Dict:
                 image_bytes = rel.target_part.blob
                 pil_img = Image.open(io.BytesIO(image_bytes))
                 if pil_img.width >= 50 and pil_img.height >= 50:
-                    img_filename = f"{_safe_filename(file_path.stem)}_img{len(images)}.png"
+                    img_filename = f"{_image_stem(str(file_path))}_img{len(images)}.png"
                     images.append((pil_img, img_filename))
             except Exception:
                 pass

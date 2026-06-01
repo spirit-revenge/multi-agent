@@ -494,6 +494,7 @@ def api_reindex_knowledge():
         vector_store.index_files("knowledge", force_reindex=True)
         return jsonify({'success': True, 'message': '重建索引完成'})
     except Exception as e:
+        logger.exception("Reindex failed")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -428,17 +428,26 @@ class LectureVectorStore:
             return
 
         total = len(changed_files)
+        failed = []
         for idx, (file_path, file_hash) in enumerate(changed_files, start=1):
             if progress_callback:
                 progress_callback("indexing", f"[{idx}/{total}] 处理 {file_path.name}...")
 
-            self._index_single_file(file_path)
+            try:
+                self._index_single_file(file_path)
+                existing_hashes[str(file_path)] = file_hash
+            except Exception as e:
+                logger.exception("Failed to index %s: %s", file_path.name, e)
+                failed.append(file_path.name)
+                # Continue with next file — don't let one bad file block everything
 
-            existing_hashes[str(file_path)] = file_hash
             if progress_callback:
                 progress_callback("indexing", f"[{idx}/{total}] 完成 {file_path.name}")
 
         self._save_file_hashes(existing_hashes)
+
+        if failed:
+            logger.warning("Indexing complete with %d failures: %s", len(failed), failed)
 
         total_entries = self.collection.count()
         logger.info("Indexing complete. Total entries in collection: %d", total_entries)
@@ -455,6 +464,11 @@ class LectureVectorStore:
         4. Store everything in ChromaDB with type/timestamp metadata
         """
         timestamp = datetime.now().isoformat(timespec="seconds")
+        file_stem = file_path.stem
+        # Include path hash in IDs so files with identical stems (e.g., from
+        # different directories) don't collide in ChromaDB.
+        path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+        id_prefix = f"{file_stem}_{path_hash}"
 
         # 1. Process the document
         result = process_document(str(file_path))
@@ -474,7 +488,7 @@ class LectureVectorStore:
         for i, chunk in enumerate(result["texts"]):
             if not chunk.strip():
                 continue
-            ids.append(f"{file_path.stem}_text_{i}")
+            ids.append(f"{id_prefix}_text_{i}")
             documents.append(chunk)
             metadatas.append({
                 "type": "text",
@@ -485,11 +499,11 @@ class LectureVectorStore:
 
         # --- Image descriptions ---
         for i, (desc, pil_img, img_filename) in enumerate(described):
-            # Save image to disk
-            img_path = self.images_directory / img_filename
+            # Save image to disk (resolve to absolute path for reliable later deletion)
+            img_path = (self.images_directory / img_filename).resolve()
             pil_img.save(str(img_path), "PNG")
 
-            ids.append(f"{file_path.stem}_img_{i}")
+            ids.append(f"{id_prefix}_img_{i}")
             documents.append(desc)
             metadatas.append({
                 "type": "image",
@@ -504,7 +518,7 @@ class LectureVectorStore:
         for i, md_table in enumerate(result["tables"]):
             if not md_table.strip():
                 continue
-            ids.append(f"{file_path.stem}_table_{i}")
+            ids.append(f"{id_prefix}_table_{i}")
             documents.append(md_table)
             metadatas.append({
                 "type": "table",
@@ -774,24 +788,50 @@ class LectureVectorStore:
 
         from urllib.parse import quote
         context = "以下是与问题相关的讲座内容：\n\n"
+        context += (
+            "【⚠️ 图片路径规则】只使用链接中已提供 `![](/images/...)` 的图片路径。"
+            "无论后续提到什么文件名，都不要自己猜测图片路径。"
+            "特别禁止使用 `幻灯片1.png`、`Slide1.png`、`图片1.png` 等猜测的文件名。\n\n"
+        )
         text_idx = 1
         for entry in deduped:
             tag = {"text": "📝 文本", "image": "🖼️ 图片", "table": "📊 表格"}.get(
                 entry["type"], "📄 内容"
             )
             similarity = entry["similarity"]
-            context += (
-                f"[{text_idx}] {tag} — 来源：{entry['source']} "
-                f"(相关度：{similarity:.2f})\n"
-            )
-            context += f"{entry['content']}\n\n"
+            source_name = Path(entry.get("source", "")).name
+
+            # Try to resolve image file
+            img_reference = ""
             if entry.get("image_path"):
-                img_filename = Path(entry["image_path"]).name
-                safe_name = quote(img_filename).replace('_', '%5F')
-                context += f"![{entry['content']}](/images/{safe_name})\n\n"
+                img_path = Path(entry["image_path"])
+                if not img_path.exists():
+                    img_filename = entry.get("image_filename", "")
+                    if img_filename:
+                        candidate = self.images_directory / img_filename
+                        if candidate.exists():
+                            img_path = candidate
+                if img_path.exists():
+                    safe_name = quote(img_path.name)
+                    img_reference = f"\n\n![](/images/{safe_name})"
+
+            if entry.get("type") == "image" and not img_reference:
+                # No valid image file on disk — hide source to prevent LLM guesswork
+                context += (
+                    f"[{text_idx}] {tag}（图片文件缺失，仅供参考描述）\n"
+                    f"{entry['content']}\n\n"
+                )
+            else:
+                context += (
+                    f"[{text_idx}] {tag} — 来源：{source_name} "
+                    f"(相关度：{similarity:.2f})\n"
+                )
+                context += f"{entry['content']}"
+                if img_reference:
+                    context += img_reference
+                context += "\n\n"
             text_idx += 1
 
-        context += "注意：上述每张图片后面都已附带了正确的 Markdown 引用路径，**直接复制即可**。不要自己编造 /images/ 路径。\n"
         return context
 
     # ------------------------------------------------------------------

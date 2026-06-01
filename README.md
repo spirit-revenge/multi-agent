@@ -154,7 +154,6 @@ lecture_crewLLM/
 │   ├── conversation_manager.py  # Conversation persistence (≤300 token summary)
 │   ├── session_manager.py       # Multi-session creation & management
 │   ├── answer_cache.py          # Answer cache (TTL 30-day, exact hash + similarity fallback)
-│   ├── google_search_tool.py    # Google Programmable Search integration
 │   ├── local_file_tool.py       # Local file reader (CrewAI Tool compatible)
 │   └── status_tracker.py        # SSE progress tracker
 │

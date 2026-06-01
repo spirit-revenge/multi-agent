@@ -142,7 +142,6 @@ lecture_crewLLM/
 │   ├── conversation_manager.py      # 对话历史持久化（≤300 tokens 摘要）
 │   ├── session_manager.py           # 多会话创建与管理
 │   ├── answer_cache.py              # 答案缓存（TTL 30 天，精确哈希 + 相似度回退匹配）
-│   ├── google_search_tool.py        # Google 搜索集成
 │   ├── local_file_tool.py           # 文件读取（CrewAI Tool 兼容）
 │   └── status_tracker.py            # SSE 进度追踪
 │
