@@ -1,6 +1,6 @@
 # LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md)
 
 **Multi-Agent Lecture Analysis System** — Multi-modal RAG (text + images + tables) + web search + interactive Web UI
 
