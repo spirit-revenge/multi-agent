@@ -194,7 +194,7 @@ lecture_crewLLM/
 ├── tools/
 │   ├── rag_store.py             # ChromaDB vector store + BM25 hybrid retrieval
 │   ├── document_processor.py    # Document parsing (PDF/PPTX/DOCX) + semantic chunking
-│   ├── image_captioner.py       # BLIP image caption generation
+│   ├── image_captioner.py       # BLIP image caption + easyocr text extraction
 │   ├── conversation_manager.py  # Conversation persistence (≤300 token summary)
 │   ├── session_manager.py       # Multi-session creation & management
 │   ├── answer_cache.py          # Answer cache (TTL 30-day, exact hash + similarity fallback)
@@ -210,10 +210,16 @@ lecture_crewLLM/
 │   ├── test_local_file_tool.py       # File tool tests (3)
 │   └── test_web_api.py               # Flask API tests (15)
 │
+├── picts/                       # Architecture diagrams
+│   ├── diagrams.md              # Mermaid source (5 diagram types)
+│   ├── generate_diagrams.py     # Script → PNG + SVG
+│   ├── request_flow.svg/png     # Request pipeline
+│   └── rag_pipeline.svg/png     # RAG pipeline
+│
 ├── templates/index.html         # Web UI template (Markdown rendering + SSE)
 ├── static/
 │   ├── style.css                # Stylesheet
-│   └── script.js                # Frontend logic
+│   └── script.js                # Frontend logic (zero-dependency Markdown renderer)
 │
 ├── knowledge/                   # Lecture files (PDF/PPTX/DOCX)
 ├── images/                      # Extracted images (auto-created)

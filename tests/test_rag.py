@@ -485,8 +485,8 @@ class TestLectureVectorStore:
         ctx = store.format_chunks_as_context(entries)
         assert "这是文本" in ctx
         assert "| A | B |" in ctx
-        assert "📝" in ctx  # text icon
-        assert "📊" in ctx  # table icon
+        assert "文本" in ctx  # text tag
+        assert "表格" in ctx  # table tag
 
         # Cleanup
         shutil.rmtree(store_dir, ignore_errors=True)

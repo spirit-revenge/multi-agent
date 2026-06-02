@@ -182,7 +182,7 @@ lecture_crewLLM/
 ├── tools/
 │   ├── rag_store.py                 # ChromaDB 向量存储 + BM25 混合检索
 │   ├── document_processor.py        # 文档解析（PDF/PPTX/DOCX）+ 语义分块
-│   ├── image_captioner.py           # BLIP 图片描述生成
+│   ├── image_captioner.py           # BLIP 图片描述 + easyocr 文字提取
 │   ├── conversation_manager.py      # 对话历史持久化（≤300 tokens 摘要）
 │   ├── session_manager.py           # 多会话创建与管理
 │   ├── answer_cache.py              # 答案缓存（TTL 30 天，精确哈希 + 相似度回退匹配）
@@ -198,10 +198,16 @@ lecture_crewLLM/
 │   ├── test_local_file_tool.py      # 文件工具测试（3）
 │   └── test_web_api.py              # Flask API 测试（15）
 │
+├── picts/                           # 架构图
+│   ├── diagrams.md                  # Mermaid 源码（5种图表）
+│   ├── generate_diagrams.py         # 脚本 → PNG + SVG
+│   ├── request_flow.svg/png         # 请求流程
+│   └── rag_pipeline.svg/png         # RAG 管道
+│
 ├── templates/index.html             # Web UI 模板
 ├── static/
 │   ├── style.css                    # 样式表
-│   └── script.js                    # 前端逻辑
+│   └── script.js                    # 前端逻辑（零依赖 Markdown 渲染）
 │
 ├── knowledge/                       # 讲座文件（PDF/PPTX/DOCX）
 ├── images/                          # 提取的图片文件（自动生成）
@@ -209,10 +215,6 @@ lecture_crewLLM/
 ├── conversations/sessions/          # 会话文件（自动生成）
 ├── cache/                           # 缓存（自动生成）
 ├── output/                          # 答案导出（自动生成）
-└── picts/                           # SVG 流程图
-    ├── request_flow.svg
-    └── rag_pipeline.svg
-```
 
 ---
 
