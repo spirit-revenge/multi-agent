@@ -52,7 +52,32 @@
 
 ### 请求流程
 
-![Request Processing Pipeline](picts/request_flow.svg)
+<details open>
+<summary>Mermaid</summary>
+
+```mermaid
+flowchart TD
+    Q["用户提问"]
+    Q --> Cache{"缓存检查"}
+    Cache -->|"命中"| Return["直接返回（0 LLM）"]
+    Cache -->|"未命中"| Rule["规则路由器"]
+    Rule -->|"匹配"| WebPath["web 路径"]
+    Rule -->|"不匹配"| LLMR["LLM 路由器"]
+    LLMR -->|"lecture"| RAG["RAG 检索"]
+    LLMR -->|"web"| Tavily["Tavily 搜索"]
+    LLMR -->|"hybrid"| Both["RAG + 搜索"]
+    RAG --> Gate{"相似度门控"}
+    Gate -->|"≥0.82"| SkipG["直接使用"]
+    Gate -->|"0.45~0.82"| Guard["Guard LLM"]
+    Gate -->|"≤0.45"| Skip["跳过"]
+    SkipG --> Analyst
+    Guard -->|"RELEVANT"| Analyst
+    Tavily --> Analyst
+    Both --> Analyst
+    Analyst["分析师 → 中文 Markdown"] --> Answer["答案"]
+```
+
+</details>
 
 ### Agent 角色
 
@@ -64,7 +89,26 @@
 
 ### 多模态 RAG 管道
 
-![RAG Pipeline](picts/rag_pipeline.svg)
+<details open>
+<summary>Mermaid</summary>
+
+```mermaid
+flowchart TD
+    Input["knowledge/*.pdf / *.pptx / *.docx"] --> DP["DocumentProcessor"]
+    DP --> Text["extract_text() 语义分块"]
+    DP --> Image["extract_images() → BLIP + easyocr"]
+    DP --> Table["extract_tables() → Markdown"]
+    Text --> DB["ChromaDB（384 维嵌入）"]
+    Image --> DB
+    Table --> DB
+    DB --> ANN["余弦 ANN 搜索"]
+    ANN --> BM25["BM25 混合重排序（70/30）"]
+    BM25 --> TopK["Top-K 结果"]
+    TopK --> Gate{"相似度门控<br/>≥0.82 / 0.45~0.82 / ≤0.45"}
+    Gate --> Context["上下文 → 分析师 → 答案"]
+```
+
+</details>
 
 ### 判定门控原理
 

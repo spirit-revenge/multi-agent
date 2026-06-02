@@ -1,6 +1,6 @@
 # LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md)
 
 **Multi-Agent Lecture Analysis System** — Multi-modal RAG (text + images + tables) + web search + interactive Web UI
 
@@ -52,7 +52,32 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 
 ### Request Flow
 
-![Request Processing Pipeline](picts/request_flow.svg)
+<details open>
+<summary>Mermaid</summary>
+
+```mermaid
+flowchart TD
+    Q["User Question"]
+    Q --> Cache{"Cache Check"}
+    Cache -->|"Hit"| Return["Return (0 LLM)"]
+    Cache -->|"Miss"| Rule["Rule Router"]
+    Rule -->|"matched"| WebPath["web path"]
+    Rule -->|"no match"| LLMR["LLM Router"]
+    LLMR -->|"lecture"| RAG["RAG Retrieval"]
+    LLMR -->|"web"| Tavily["Tavily Search"]
+    LLMR -->|"hybrid"| Both["RAG + Search"]
+    RAG --> Gate{"Similarity Gate"}
+    Gate -->|"≥0.82"| SkipG["use directly"]
+    Gate -->|"0.45~0.82"| Guard["Guard LLM"]
+    Gate -->|"≤0.45"| Skip["skip"]
+    SkipG --> Analyst
+    Guard -->|"RELEVANT"| Analyst
+    Tavily --> Analyst
+    Both --> Analyst
+    Analyst["Analyst → Markdown"] --> Answer["Answer"]
+```
+
+</details>
 
 ### Agent Roles
 
@@ -64,7 +89,26 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 
 ### Multi-Modal RAG Pipeline
 
-![RAG Pipeline](picts/rag_pipeline.svg)
+<details open>
+<summary>Mermaid</summary>
+
+```mermaid
+flowchart TD
+    Input["knowledge/*.pdf / *.pptx / *.docx"] --> DP["DocumentProcessor"]
+    DP --> Text["extract_text()"]
+    DP --> Image["extract_images() → BLIP + easyocr"]
+    DP --> Table["extract_tables() → Markdown"]
+    Text --> DB["ChromaDB<br/>384-dim embedding"]
+    Image --> DB
+    Table --> DB
+    DB --> ANN["Cosine ANN Search"]
+    ANN --> BM25["BM25 Re-rank (70/30)"]
+    BM25 --> TopK["Top-K Results"]
+    TopK --> Gate{"Similarity Gate<br/>≥0.82 / 0.45~0.82 / ≤0.45"}
+    Gate --> Context["Context → Analyst → Answer"]
+```
+
+</details>
 
 ### Similarity Gate
 
