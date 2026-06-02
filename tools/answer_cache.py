@@ -322,10 +322,10 @@ class AnswerCache:
         print(f"  过期条目：{stats['expired_entries']}")
         
         if self.cache:
-            print(f"\n📝 Recent cached questions:")
+            print(f"\nRecent cached questions:")
             for cached in self.cache[-5:]:  # Show last 5
                 age = (datetime.now() - datetime.fromisoformat(cached.timestamp)).days
-                status = "有效" if self._is_cache_valid(cached) else "⚠ 已过期"
+                status = "有效" if self._is_cache_valid(cached) else "已过期"
                 print(f"  [{status}, {age}天前] {cached.question[:70]}...")
     
     def __len__(self) -> int:

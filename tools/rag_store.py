@@ -834,14 +834,14 @@ class LectureVectorStore:
         from urllib.parse import quote
         context = "以下是与问题相关的讲座内容：\n\n"
         context += (
-            "【⚠️ 图片路径规则】只使用链接中已提供 `![](/images/...)` 的图片路径。"
+            "【图片路径规则】只使用链接中已提供 `![](/images/...)` 的图片路径。"
             "无论后续提到什么文件名，都不要自己猜测图片路径。"
             "特别禁止使用 `幻灯片1.png`、`Slide1.png`、`图片1.png` 等猜测的文件名。\n\n"
         )
         text_idx = 1
         for entry in deduped:
-            tag = {"text": "📝 文本", "image": "🖼️ 图片", "table": "📊 表格"}.get(
-                entry["type"], "📄 内容"
+            tag = {"text": "文本", "image": "图片", "table": "表格"}.get(
+                entry["type"], "内容"
             )
             similarity = entry["similarity"]
             source_name = Path(entry.get("source", "")).name

@@ -4,23 +4,23 @@
 
 ```mermaid
 flowchart TD
-    Q["👤 User Question"]
+    Q["User Question"]
     
-    Q --> Cache{"⚡ Cache Check<br/>exact hash + token similarity"}
-    Cache -->|"✅ Hit"| Return["📦 Return (0 LLM)"]
-    Cache -->|"❌ Miss"| Rule["🎯 Rule Router<br/>Weather / News / Stock keywords"]
+    Q --> Cache{"Cache Check<br/>exact hash + token similarity"}
+    Cache -->|"Hit"| Return["Return (0 LLM)"]
+    Cache -->|"Miss"| Rule["Rule Router<br/>Weather / News / Stock keywords"]
     
     Rule -->|"keyword matched"| WebPath
-    Rule -->|"no match"| LLMRouter["🧠 LLM Router<br/>classify: lecture / web / hybrid / unknown"]
+    Rule -->|"no match"| LLMRouter["LLM Router<br/>classify: lecture / web / hybrid / unknown"]
     
-    LLMRouter -->|"lecture"| RAG["💡 RAG Retrieval<br/>ChromaDB + BM25"]
-    LLMRouter -->|"web"| Tavily["🌐 Tavily Search<br/>with 1h cache"]
-    LLMRouter -->|"hybrid"| Both["📚 RAG + Search<br/>both pipelines"]
+    LLMRouter -->|"lecture"| RAG["RAG Retrieval<br/>ChromaDB + BM25"]
+    LLMRouter -->|"web"| Tavily["Tavily Search<br/>with 1h cache"]
+    LLMRouter -->|"hybrid"| Both["RAG + Search<br/>both pipelines"]
     
-    RAG --> Gate{"🔬 Similarity Gate"}
-    Gate -->|"≥ 0.82"| SkipGuard["✅ Use directly<br/>(skip Guard)"]
-    Gate -->|"0.45 ~ 0.82"| Guard["🛡️ Guard LLM<br/>semantic verification"]
-    Gate -->|"≤ 0.45"| SkipAll["❌ Skip<br/>(no result)"]
+    RAG --> Gate{"Similarity Gate"}
+    Gate -->|"≥ 0.82"| SkipGuard["Use directly<br/>(skip Guard)"]
+    Gate -->|"0.45 ~ 0.82"| Guard["Guard LLM<br/>semantic verification"]
+    Gate -->|"≤ 0.45"| SkipAll["Skip<br/>(no result)"]
     
     SkipGuard --> Analyst
     Guard -->|"RELEVANT"| Analyst
@@ -28,10 +28,10 @@ flowchart TD
     Tavily --> Analyst
     Both --> Analyst
     
-    Analyst["📝 Analyst<br/>synthesize → Chinese Markdown"]
-    Analyst --> Answer["✅ Answer"]
+    Analyst["Analyst<br/>synthesize → Chinese Markdown"]
+    Analyst --> Answer["Answer"]
     
-    Answer -.-> SSE["📡 SSE Progress<br/>4 steps → frontend"]
+    Answer -.-> SSE["SSE Progress<br/>4 steps → frontend"]
 
     style Q fill:#667eea,color:#fff
     style Cache fill:#10b981,color:#fff
@@ -55,28 +55,28 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Input["📁 knowledge/*.pdf / *.pptx / *.docx"]
+    Input["knowledge/*.pdf / *.pptx / *.docx"]
     
-    Input --> DP["🔧 DocumentProcessor"]
+    Input --> DP["DocumentProcessor"]
     
-    DP --> Text["📝 extract_text()<br/>semantic chunking<br/>paragraph/heading boundaries"]
-    DP --> Image["🖼️ extract_images()<br/>PIL Image → BLIP caption<br/>+ easyocr text extraction"]
-    DP --> Table["📊 extract_tables()<br/>convert to Markdown<br/>| A | B | → table string"]
+    DP --> Text["extract_text()<br/>semantic chunking<br/>paragraph/heading boundaries"]
+    DP --> Image["extract_images()<br/>PIL Image → BLIP caption<br/>+ easyocr text extraction"]
+    DP --> Table["extract_tables()<br/>convert to Markdown<br/>| A | B | → table string"]
     
     Text --> DB
     Image --> DB
     Table --> DB
     
-    DB["🗄️ ChromaDB — Local Persistence<br/>type: text | image | table | web<br/>384-dim (paraphrase-multilingual-MiniLM-L12-v2)"]
+    DB["ChromaDB — Local Persistence<br/>type: text | image | table | web<br/>384-dim (paraphrase-multilingual-MiniLM-L12-v2)"]
     
-    DB --> Retrieve["🔍 Cosine ANN Search"]
-    Retrieve --> BM25["📐 BM25 Hybrid Re-rank (70/30)"]
-    BM25 --> TopK["📋 Top-K Results"]
-    TopK --> Gate{"🔬 Similarity Gate<br/>≥0.82 skip Guard<br/>0.45~0.82 Guard LLM<br/>≤0.45 skip"}
+    DB --> Retrieve["Cosine ANN Search"]
+    Retrieve --> BM25["BM25 Hybrid Re-rank (70/30)"]
+    BM25 --> TopK["Top-K Results"]
+    TopK --> Gate{"Similarity Gate<br/>≥0.82 skip Guard<br/>0.45~0.82 Guard LLM<br/>≤0.45 skip"}
     
-    Gate --> Context["📤 Context → Analyst LLM → Answer"]
+    Gate --> Context["Context → Analyst LLM → Answer"]
     
-    UserQuery["👤 User Query"] -.-> Retrieve
+    UserQuery["User Query"] -.-> Retrieve
     UserQuery -.->|"query rewrite<br/>expand abbreviations"| UserQuery
 
     style Input fill:#667eea,color:#fff
@@ -99,13 +99,13 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant User as 👤 User
-    participant Web as 🌐 Web UI
-    participant Route as 🎯 Router
-    participant RAG as 💡 RAG
-    participant Guard as 🛡️ Guard
-    participant Search as 🔍 Tavily
-    participant Analyst as 📝 Analyst
+    participant User as User
+    participant Web as Web UI
+    participant Route as Router
+    participant RAG as RAG
+    participant Guard as Guard
+    participant Search as Tavily
+    participant Analyst as Analyst
 
     User->>Web: "什么是 Transformer？"
     Web->>Route: classify intent
@@ -175,7 +175,7 @@ classDiagram
 
 ```mermaid
 flowchart LR
-    Q["👤 Query"] --> L1
+    Q["Query"] --> L1
     
     subgraph "4-Tier Cache"
         L1["① Answer Cache<br/>30-day TTL<br/>exact hash + fuzzy match"]
@@ -187,9 +187,9 @@ flowchart LR
     L1 -->|"miss"| L2
     L2 -->|"miss"| L3
     L3 -->|"miss"| L4
-    L4 -->|"miss"| LLM["🤖 LLM Generation"]
+    L4 -->|"miss"| LLM["LLM Generation"]
     
-    L1 -->|"hit"| Return["✅ Return"]
+    L1 -->|"hit"| Return["Return"]
     L2 -->|"hit"| Return
     L3 -->|"hit"| Return
     L4 -->|"hit"| Return
