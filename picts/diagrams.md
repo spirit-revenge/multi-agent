@@ -1,6 +1,6 @@
 # LectureCrewLLM 架构图
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md) ｜ [未来设想图](picts/feture.md)
 
 ## 1. 请求处理流程 (Request Processing Pipeline)
 

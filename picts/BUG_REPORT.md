@@ -1,6 +1,6 @@
 # Bug Report — LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md) ｜ [未来设想图](picts/feture.md)
 
 > 最后更新：2026年6月 | 测试：131/131 全部通过
 
