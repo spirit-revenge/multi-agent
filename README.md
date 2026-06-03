@@ -177,7 +177,7 @@ python main.py
 
 ```bash
 python -m pytest tests/ -v
-# 131 tests across 8 modules
+# 150 tests across 8 modules
 ```
 
 ---
@@ -295,14 +295,14 @@ lecture_crewLLM/
 
 | Module | Count | Coverage |
 |--------|-------|----------|
-| `test_rag.py` | 37 | Semantic chunking, table conversion, document dispatch, image captioning, vector CRUD, hybrid retrieval, web→RAG indexing, single-file indexing |
+| `test_rag.py` | 47 | Semantic chunking, table conversion, document dispatch, image captioning, vector CRUD, hybrid retrieval, web→RAG indexing, single-file indexing, filename safety, path hashing, keyword boost, cache key isolation |
 | `test_answer_cache.py` | 12 | Cache hit/expiry/overwrite, punctuation tolerance, stopword filtering, jieba semantic matching |
 | `test_conversation_manager.py` | 16 | Message CRUD, persistence, context formatting, search |
 | `test_session_manager.py` | 15 | Session create/list/label/delete, cross-session search |
 | `test_status_tracker.py` | 6 | SSE progress tracking, concurrency |
 | `test_local_file_tool.py` | 3 | PDF/PPTX reading, missing file handling |
-| `test_web_api.py` | 42 | Flask API + HTML template + SSE + chat + session/knowledge/image endpoints |
-| **Total** | **131** | All passing |
+| `test_web_api.py` | 51 | Flask API + HTML template + SSE + chat + session/knowledge/image endpoints, image validation, search cache resilience, web entry filtering |
+| **Total** | **150** | All passing |
 
 ---
 

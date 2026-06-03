@@ -215,6 +215,61 @@ class TestProcessDocument:
 
 
 # ============================================================================
+# Tests: _safe_filename, _file_path_hash, _image_stem (Bug #22, #3)
+# ============================================================================
+
+class TestFilenameSafety:
+    """Test filename sanitization and collision prevention."""
+
+    def test_safe_filename_replaces_ampersand(self):
+        """Bug #22: & in filenames causes URL query parameter issues."""
+        from tools.document_processor import _safe_filename
+        result = _safe_filename("W12_LLM_RAG&Agent")
+        assert "&" not in result
+        assert "RAG_Agent" in result
+
+    def test_safe_filename_replaces_spaces(self):
+        from tools.document_processor import _safe_filename
+        result = _safe_filename("My Lecture File")
+        assert " " not in result
+
+    def test_safe_filename_collapses_underscores(self):
+        from tools.document_processor import _safe_filename
+        result = _safe_filename("a@#b!!!c")
+        # Multiple special chars replaced with single underscore
+        assert "__" not in result
+
+    def test_file_path_hash_deterministic(self):
+        """Same path always produces same hash."""
+        from tools.document_processor import _file_path_hash
+        h1 = _file_path_hash("/knowledge/W11_LLM.pptx")
+        h2 = _file_path_hash("/knowledge/W11_LLM.pptx")
+        assert h1 == h2
+        assert len(h1) == 8
+
+    def test_file_path_hash_different_for_different_paths(self):
+        from tools.document_processor import _file_path_hash
+        h1 = _file_path_hash("/a/test.pptx")
+        h2 = _file_path_hash("/b/test.pptx")
+        assert h1 != h2
+
+    def test_image_stem_includes_path_hash(self):
+        """Bug #3: image stem includes path hash to prevent collisions."""
+        from tools.document_processor import _image_stem, _file_path_hash
+        result = _image_stem("/knowledge/W11_LLM.pptx")
+        expected_hash = _file_path_hash("/knowledge/W11_LLM.pptx")
+        assert f"W11_LLM_{expected_hash}" == result
+        assert len(result) > len("W11_LLM")  # hash appended
+
+    def test_image_stem_disambiguates_same_stem_different_dir(self):
+        """Bug #3: two files with same stem in different dirs get unique stems."""
+        from tools.document_processor import _image_stem
+        s1 = _image_stem("/knowledge/W11_LLM.pptx")
+        s2 = _image_stem("/knowledge/archive/W11_LLM.pptx")
+        assert s1 != s2
+
+
+# ============================================================================
 # Tests: image_captioner
 # ============================================================================
 
@@ -643,6 +698,87 @@ class TestLectureVectorStore:
         assert len(call_args["documents"]) == 2
         assert store._save_file_hashes.called
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_retrieve_cache_key_includes_content_type(self):
+        """Bug #7: different content_type filters must use separate cache keys."""
+        from tools.rag_store import LectureVectorStore, retrieval_cache
+        store, store_dir = self._make_store()
+
+        retrieval_cache.clear()
+        try:
+            query = "Transformer architecture"
+
+            # First call with content_type="image"
+            store.collection.query.return_value = {
+                "documents": [["image desc"]],
+                "metadatas": [[{"type": "image", "source": "a.pptx",
+                               "indexed_at": "2026-01-01",
+                               "image_path": "images/test.png"}]],
+                "distances": [[0.3]],
+                "ids": [["img1"]],
+            }
+            results_img = store.retrieve(query, k=3, content_type="image")
+            assert len(results_img) == 1
+            assert results_img[0]["type"] == "image"
+
+            # Second call with content_type=None should NOT hit the image cache
+            store.collection.query.return_value = {
+                "documents": [["text content"]],
+                "metadatas": [[{"type": "text", "source": "a.pdf",
+                               "indexed_at": "2026-01-01"}]],
+                "distances": [[0.2]],
+                "ids": [["txt1"]],
+            }
+            results_all = store.retrieve(query, k=3, content_type=None)
+            assert len(results_all) == 1
+            assert results_all[0]["type"] == "text"
+        finally:
+            retrieval_cache.clear()
+            shutil.rmtree(store_dir, ignore_errors=True)
+
+    def test_keyword_boost_floors_low_similarity(self):
+        """Bug #2: exact keyword matches floor similarity to 0.55."""
+        from tools.rag_store import LectureVectorStore
+        store, store_dir = self._make_store()
+
+        # Simulate ChromaDB returning a low-similarity result for "rag"
+        store.collection.query.return_value = {
+            "documents": [["Retrieval Augmented Generation (RAG) is a technique..."]],
+            "metadatas": [[{"type": "text", "source": "W12_LLM_RAG.pptx",
+                           "indexed_at": "2026-01-01"}]],
+            "distances": [[0.65]],  # 1 - 0.65 = 0.35 similarity
+            "ids": [["rag_doc"]],
+        }
+
+        results = store.retrieve("rag是什么", k=3)
+        assert len(results) >= 1
+        sim = results[0]["similarity"]
+        # The boost should floor similarity to at least 0.55
+        # "rag" token should match the document content (both lowercase)
+        assert sim >= 0.55, f"Expected similarity >= 0.55 after keyword boost, got {sim}"
+
+        shutil.rmtree(store_dir, ignore_errors=True)
+
+    def test_keyword_boost_no_effect_on_high_similarity(self):
+        """Keyword boost should not lower already-high similarity scores."""
+        from tools.rag_store import LectureVectorStore
+        store, store_dir = self._make_store()
+
+        store.collection.query.return_value = {
+            "documents": [["Transformer architecture uses self-attention..."]],
+            "metadatas": [[{"type": "text", "source": "W5_Transformer.pptx",
+                           "indexed_at": "2026-01-01"}]],
+            "distances": [[0.15]],  # 1 - 0.15 = 0.85 similarity
+            "ids": [["transformer_doc"]],
+        }
+
+        results = store.retrieve("Transformer architecture", k=3)
+        assert len(results) >= 1
+        sim = results[0]["similarity"]
+        # Already high similarity should stay as-is (~0.85)
+        assert sim > 0.55, f"Expected similarity > 0.55, got {sim}"
+
+        shutil.rmtree(store_dir, ignore_errors=True)
 
     def test_index_file_rejects_wrong_extension(self):
         """index_file() raises ValueError for unsupported file types."""

@@ -2,7 +2,7 @@
 
 [English](../README.md) | [中文](../README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](diagrams.md) ｜ [未来设想图](feture.md)
 
-> 最后更新：2026年6月 | 测试：131/131 全部通过
+> 最后更新：2026年6月 | 测试：150/150 全部通过
 
 ---
 
@@ -841,7 +841,7 @@ prompt 增加「不要编造图片文件名」约束。
 
 ## 测试回归
 
-所有 Bug 修复后，测试套件保持 **131/131 全部通过**。
+所有 Bug 修复后，测试套件保持 **150/150 全部通过**。
 
 新增的回归测试：
 - `test_index_file_single_upload` — 单文件索引
@@ -861,6 +861,17 @@ prompt 增加「不要编造图片文件名」约束。
 - `test_search_all_sessions_empty` — 空
 - `test_search_all_sessions_has_required_fields` — 字段完整性
 - `test_search_requires_query` / `test_search_empty_query` / `test_search_returns_results` / `test_search_with_all_flag` — API 搜索
+- `test_safe_filename_replaces_ampersand` / `test_safe_filename_collapses_underscores` — 文件名特殊字符处理（Bug #22）
+- `test_file_path_hash_deterministic` / `test_file_path_hash_different_for_different_paths` — 路径哈希确定性（Bug #3）
+- `test_image_stem_includes_path_hash` / `test_image_stem_disambiguates_same_stem_different_dir` — 图片名冲突预防（Bug #3）
+- `test_retrieve_cache_key_includes_content_type` — 检索缓存区分 content_type（Bug #7）
+- `test_keyword_boost_floors_low_similarity` / `test_keyword_boost_no_effect_on_high_similarity` — 关键词相似度 Boost（Bug #2）
+- `test_strip_invalid_images_removes_fake_paths` / `test_strip_invalid_images_keeps_real_images` — 图片引用验证（Bug #9）
+- `test_strip_invalid_images_handles_url_encoded_chinese` — URL 编码中文文件名处理（Bug #8）
+- `test_extract_valid_images_returns_real_refs` / `test_extract_valid_images_deduplicates` — 有效图片提取（Bug #9）
+- `test_finalize_answer_strips_fake_and_appends_real` — 答案后处理安全网（Bug #9）
+- `test_load_search_cache_returns_empty_on_missing_file` / `test_load_search_cache_handles_corrupt_file` — 搜索缓存容错（Bug #14）
+- `test_chat_filters_web_entries_when_search_off` — 关闭联网时过滤 web 条目（Bug #20）
 
 ---
 

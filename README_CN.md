@@ -165,7 +165,7 @@ python main.py       # CLI 模式
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 131 个测试，全部通过
+python -m pytest tests/ -v    # 150 个测试，全部通过
 ```
 
 ---
@@ -279,14 +279,14 @@ lecture_crewLLM/
 
 | 模块 | 数量 | 覆盖内容 |
 |------|------|---------|
-| `test_rag.py` | 37 | 语义分块、表格转换、文档分发、图片描述、向量存储 CRUD、混合检索、web→RAG 索引、单文件索引 |
+| `test_rag.py` | 47 | 语义分块、表格转换、文档分发、图片描述、向量存储 CRUD、混合检索、web→RAG 索引、单文件索引、文件名安全处理、路径哈希、关键词 Boost、缓存键区分 |
 | `test_answer_cache.py` | 12 | 缓存命中/过期/覆盖、标点容忍、停用词过滤、jieba 语义匹配 |
 | `test_conversation_manager.py` | 16 | 消息 CRUD、持久化、上下文格式化、搜索消息 |
 | `test_session_manager.py` | 15 | 会话创建/列表/标签/删除、跨会话搜索 |
 | `test_status_tracker.py` | 6 | SSE 进度追踪、并发安全 |
 | `test_local_file_tool.py` | 3 | PDF/PPTX 读取、文件不存在处理 |
-| `test_web_api.py` | 42 | Flask API + HTML 模板 + SSE + 聊天 + 会话/知识/图片端点 |
-| **总计** | **131** | 全部通过 |
+| `test_web_api.py` | 51 | Flask API + HTML 模板 + SSE + 聊天 + 会话/知识/图片端点、图片验证、搜索缓存容错、web 条目过滤 |
+| **总计** | **150** | 全部通过 |
 
 ---
 
