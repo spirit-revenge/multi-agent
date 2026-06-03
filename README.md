@@ -212,9 +212,7 @@ lecture_crewLLM/
 │
 ├── picts/                       # Architecture diagrams
 │   ├── diagrams.md              # Mermaid source (5 diagram types)
-│   ├── generate_diagrams.py     # Script → PNG + SVG
-│   ├── request_flow.svg/png     # Request pipeline
-│   └── rag_pipeline.svg/png     # RAG pipeline
+│   ├── BUG_REPORT.md            # BUG report
 │
 ├── templates/index.html         # Web UI template (Markdown rendering + SSE)
 ├── static/

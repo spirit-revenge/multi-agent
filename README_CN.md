@@ -1,6 +1,6 @@
 # LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md)
 
 **多智能体讲座分析系统** — 多模态 RAG（文本 + 图片 + 表格）+ 联网搜索 + 交互式 Web UI
 
@@ -200,9 +200,7 @@ lecture_crewLLM/
 │
 ├── picts/                           # 架构图
 │   ├── diagrams.md                  # Mermaid 源码（5种图表）
-│   ├── generate_diagrams.py         # 脚本 → PNG + SVG
-│   ├── request_flow.svg/png         # 请求流程
-│   └── rag_pipeline.svg/png         # RAG 管道
+│   ├── BUG_REPORT.md                # BUG 报告
 │
 ├── templates/index.html             # Web UI 模板
 ├── static/
