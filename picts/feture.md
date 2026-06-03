@@ -1,6 +1,6 @@
 # 项目未来构想
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md) ｜ [未来设想图](picts/feture.md)
+[English](../README.md) | [中文](../README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](diagrams.md) ｜ [未来设想图](feture.md)
 
 > [!NOTE]
 > 以下为项目未来构想图，为AI生成，有可能会在以后的时间进行落地
