@@ -345,4 +345,9 @@ lecture_crewLLM/
 
 ---
 
+> [!NOTE]
+> This project is for learning purposes, not for actual production environments.
+
+---
+
 *Last updated: June 2026*
