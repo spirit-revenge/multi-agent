@@ -346,7 +346,7 @@ lecture_crewLLM/
 ---
 
 > [!NOTE]
-> This project is for learning purposes, not for actual production environments.
+> This project is for learning purposes. It contains many bugs and unimplemented features, so please do not use it in actual production environments. Feel free to reach out for discussion at any time.
 
 ---
 
