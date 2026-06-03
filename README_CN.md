@@ -19,7 +19,10 @@
 - **多会话管理** — 持久化对话历史，支持会话切换、新建、删除
 - **历史搜索** — CLI `find` 命令 + Web UI 侧边栏搜索，支持跨会话全文检索，点击结果一键跳转
 - **自动定位** — 浏览器 Geolocation API 自动获取城市位置，无需手动设置
+- **视觉意图路由** — "展示 Transformer 架构图"等查询自动路由到图片检索，跳过相似度门控
+- **OCR 文字提取** — easyocr 从图表和截图中提取中英文嵌入文字
 - **优雅降级** — 搜索失败时自动回退到仅讲座内容，缓存自动清理
+- **服务端 Markdown 渲染** — Python-Markdown 后端渲染答案 HTML，替代前端 ~165 行自研 JS 渲染器
 
 ---
 
@@ -33,6 +36,7 @@
 | **嵌入模型** | [sentence-transformers](https://sbert.net/) | 5.4.1 | `paraphrase-multilingual-MiniLM-L12-v2` (384维) |
 | **重排序** | BM25 Okapi (scikit-learn) | 1.8.0 | 统计重排序与嵌入相似度融合 (70/30) |
 | **图片描述** | [BLIP](https://huggingface.co/Salesforce/blip-image-captioning-base) (transformers) | 5.7.0 | 图片 → 文字描述，用于 RAG 索引 |
+| **OCR** | [easyocr](https://github.com/JaidedAI/EasyOCR) | 1.7.2 | 图表/截图中嵌入文字提取 |
 | **深度学习** | [PyTorch](https://pytorch.org/) | 2.11.0 | sentence-transformers 和 BLIP 的后端 |
 | **文档解析** | [PyMuPDF](https://pymupdf.readthedocs.io/) | 1.26.7 | PDF 提取 |
 | | [python-pptx](https://python-pptx.readthedocs.io/) | 1.0.2 | PPTX 提取 |
@@ -41,9 +45,10 @@
 | **Web UI** | [Flask](https://flask.palletsprojects.com/) | 3.0.0 | HTTP 服务器 + REST API |
 | | Server-Sent Events (SSE) | — | 实时进度推送 |
 | | Font Awesome (CDN) | 6.4.0 | 图标 |
+| **Markdown** | [Python-Markdown](https://python-markdown.github.io/) | 3.10.2 | 服务端 Markdown→HTML（GFM 表格 + 代码块） |
 | **中文分词** | [jieba](https://github.com/fxsjy/jieba) | — | 中文分词（缓存匹配用） |
 | **缓存** | JSON 文件存储 | — | 四级：答案 + 检索 + 搜索 + web→RAG |
-| **测试** | [pytest](https://pytest.org/) | 9.0.3 | 101 个单元测试，覆盖 8 个模块 |
+| **测试** | [pytest](https://pytest.org/) | 9.0.3 | 150 个单元测试，覆盖 8 个模块 |
 | **环境配置** | [python-dotenv](https://github.com/theskumar/python-dotenv) | 1.2.2 | `.env` 变量管理 |
 
 ---
@@ -190,29 +195,34 @@ lecture_crewLLM/
 │   └── status_tracker.py            # SSE 进度追踪
 │
 ├── tests/
-│   ├── test_rag.py                  # RAG 测试（37）
+│   ├── test_rag.py                  # RAG 测试（47）
 │   ├── test_answer_cache.py         # 缓存测试（12）
 │   ├── test_conversation_manager.py # 对话测试（16）
 │   ├── test_session_manager.py      # 会话测试（15）
 │   ├── test_status_tracker.py       # SSE 追踪测试（6）
 │   ├── test_local_file_tool.py      # 文件工具测试（3）
-│   └── test_web_api.py              # Flask API 测试（15）
+│   └── test_web_api.py              # Flask API 测试（51）
 │
-├── picts/                           # 架构图
+├── md/                              # 文档与图表
+│   ├── BUG_REPORT.md                # Bug 报告
 │   ├── diagrams.md                  # Mermaid 源码（5种图表）
-│   ├── BUG_REPORT.md                # BUG 报告
+│   └── feture.md                    # 未来路线图
+│
+├── presentation/                    # 演示材料
+│   ├── PROJECT_SLIDES.md            # 幻灯片内容
+│   └── LectureCrewLLM.pdf           # 导出 PDF
 │
 ├── templates/index.html             # Web UI 模板
 ├── static/
 │   ├── style.css                    # 样式表
-│   └── script.js                    # 前端逻辑（零依赖 Markdown 渲染）
+│   └── script.js                    # 前端逻辑（接收后端预渲染 HTML）
 │
 ├── knowledge/                       # 讲座文件（PDF/PPTX/DOCX）
 ├── images/                          # 提取的图片文件（自动生成）
 ├── chroma_db/                       # ChromaDB 持久化数据（自动生成）
 ├── conversations/sessions/          # 会话文件（自动生成）
 ├── cache/                           # 缓存（自动生成）
-├── output/                          # 答案导出（自动生成）
+└── output/                          # 答案导出（自动生成）
 
 ---
 
@@ -221,6 +231,7 @@ lecture_crewLLM/
 | 变量 | 必填 | 说明 | 默认 |
 |------|------|------|------|
 | `DEEPSEEK_API_KEY` | 是 | DeepSeek API 密钥 | — |
+| `LLM_MODEL` | 否 | LLM 模型标识（provider/model 格式） | `deepseek/deepseek-chat` |
 | `TAVILY_API_KEY` | 否 | Tavily 搜索密钥（不需要联网可不填） | — |
 | `FLASK_SECRET_KEY` | 是* | Flask 会话签名密钥。生成：`python -c "import secrets; print(secrets.token_hex(32))"` | — |
 | `WEB_UI_PORT` | 否 | Web UI 端口 | `7860` |
@@ -272,6 +283,7 @@ lecture_crewLLM/
 | **单文件索引** | `index_file()` 直接索引单文件，跳过目录扫描 | 上传 API：O(N)→O(1)，不再对 knowledge/ 下全部文件计算 SHA256 |
 | **批量 BLIP** | Pipeline 批量模式（图片列表）替代串行 for 循环 | 多图文档（如 PPTX 含 10+ 张图）加速 2-5 倍 |
 | **侧边栏自动刷新** | 每次变更后调 `loadCacheStats()` + `loadKnowledge()` | 缓存计数和文件列表实时更新，无需手动刷新 |
+| **服务端 Markdown** | Python-Markdown 后端渲染，前端直接 `innerHTML` | 删除 ~165 行自研 JS 渲染器；消除正则/占位符 Bug；完整 GFM 支持 |
 
 ---
 
@@ -314,6 +326,7 @@ lecture_crewLLM/
 | **稳定性** | 图片 URL 编码、路径穿越防护、文件名特殊字符清理、缓存自动清理 |
 | **交互增强** | 历史搜索（CLI `find` + Web UI 侧边栏）、搜索结果一键跳转、浏览器自动定位 |
 | **上传链路优化** | 单文件索引 `index_file()`、批量 BLIP 推理、侧边栏自动刷新 | 上传 O(N)→O(1)，BLIP 2-5× 加速，缓存/知识面板实时更新 |
+| **测试加固** | 131→150 测试，新增 19 个回归测试覆盖 10 个此前未测 Bug | 关键词 Boost、文件名安全、图片验证、缓存容错、web 条目过滤 |
 
 ---
 

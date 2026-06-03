@@ -19,7 +19,10 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 - **Multi-Session** — Persistent conversation history, session switching, creation, and deletion
 - **History Search** — CLI `find` command + Web UI sidebar search, cross-session full-text search, click-to-jump
 - **Auto Geo-Location** — Browser Geolocation API auto-detects city, no manual input needed
+- **Visual Intent Routing** — Queries like "show Transformer architecture diagram" auto-route to image retrieval, bypassing similarity gate
+- **OCR Text Extraction** — easyocr extracts embedded Chinese/English text from diagrams and screenshots
 - **Graceful Degradation** — Falls back to lecture-only answers when web search fails
+- **Server-Side Markdown** — Python-Markdown renders answers to HTML on the backend, replacing ~165 lines of fragile frontend JS
 
 ---
 
@@ -33,6 +36,7 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 | **Embeddings** | [sentence-transformers](https://sbert.net/) | 5.4.1 | `paraphrase-multilingual-MiniLM-L12-v2` (384-dim) |
 | **Re-ranking** | BM25 Okapi (scikit-learn) | 1.8.0 | Statistical re-rank fused with embedding similarity (70/30) |
 | **Image Caption** | [BLIP](https://huggingface.co/Salesforce/blip-image-captioning-base) (transformers) | 5.7.0 | Image → text description for RAG indexing |
+| **OCR** | [easyocr](https://github.com/JaidedAI/EasyOCR) | 1.7.2 | Embedded text extraction from diagrams/screenshots |
 | **Deep Learning** | [PyTorch](https://pytorch.org/) | 2.11.0 | Backend for sentence-transformers and BLIP |
 | **Document Parsing** | [PyMuPDF](https://pymupdf.readthedocs.io/) | 1.26.7 | PDF extraction |
 | | [python-pptx](https://python-pptx.readthedocs.io/) | 1.0.2 | PPTX extraction |
@@ -41,9 +45,10 @@ Built with CrewAI, ChromaDB, and Flask. Uses DeepSeek as the LLM, sentence-trans
 | **Web UI** | [Flask](https://flask.palletsprojects.com/) | 3.0.0 | HTTP server + REST API |
 | | Server-Sent Events (SSE) | — | Real-time progress streaming |
 | | Font Awesome (CDN) | 6.4.0 | Icons |
+| **Markdown** | [Python-Markdown](https://python-markdown.github.io/) | 3.10.2 | Server-side Markdown→HTML (GFM tables + code blocks) |
 | **Chinese NLP** | [jieba](https://github.com/fxsjy/jieba) | — | Chinese word segmentation for cache matching |
 | **Cache** | JSON file-based | — | 4-tier: answer + retrieval + search + web→RAG |
-| **Testing** | [pytest](https://pytest.org/) | 9.0.3 | 101 unit tests across 8 modules |
+| **Testing** | [pytest](https://pytest.org/) | 9.0.3 | 150 unit tests across 8 modules |
 | **Env Config** | [python-dotenv](https://github.com/theskumar/python-dotenv) | 1.2.2 | `.env` variable management |
 
 ---
@@ -202,32 +207,34 @@ lecture_crewLLM/
 │   └── status_tracker.py        # SSE progress tracker
 │
 ├── tests/
-│   ├── test_rag.py              # RAG tests (37)
+│   ├── test_rag.py              # RAG tests (47)
 │   ├── test_answer_cache.py     # Cache tests (12)
 │   ├── test_conversation_manager.py  # Conversation tests (16)
 │   ├── test_session_manager.py       # Session tests (15)
 │   ├── test_status_tracker.py        # SSE tracker tests (6)
 │   ├── test_local_file_tool.py       # File tool tests (3)
-│   └── test_web_api.py               # Flask API tests (15)
+│   └── test_web_api.py               # Flask API tests (51)
 │
-├── picts/                       # Architecture diagrams
+├── md/                          # Documentation & diagrams
+│   ├── BUG_REPORT.md            # Bug report
 │   ├── diagrams.md              # Mermaid source (5 diagram types)
-│   ├── BUG_REPORT.md            # BUG report
+│   └── feture.md                # Future roadmap
 │
-├── templates/index.html         # Web UI template (Markdown rendering + SSE)
+├── presentation/                # Presentation materials
+│   ├── PROJECT_SLIDES.md        # Slide content
+│   └── LectureCrewLLM.pdf       # Exported PDF
+│
+├── templates/index.html         # Web UI template (server-rendered HTML + SSE)
 ├── static/
 │   ├── style.css                # Stylesheet
-│   └── script.js                # Frontend logic (zero-dependency Markdown renderer)
+│   └── script.js                # Frontend logic (receives pre-rendered HTML from backend)
 │
 ├── knowledge/                   # Lecture files (PDF/PPTX/DOCX)
 ├── images/                      # Extracted images (auto-created)
 ├── chroma_db/                   # ChromaDB persistence (auto-created)
 ├── conversations/sessions/      # Session files (auto-created)
 ├── cache/                       # Answer/retrieval/search caches (auto-created)
-├── output/                      # Timestamped answer exports (auto-created)
-└── picts/                       # SVG diagrams
-    ├── request_flow.svg
-    └── rag_pipeline.svg
+└── output/                      # Timestamped answer exports (auto-created)
 ```
 
 ---
@@ -237,6 +244,7 @@ lecture_crewLLM/
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
 | `DEEPSEEK_API_KEY` | Yes | DeepSeek API key | — |
+| `LLM_MODEL` | No | LLM model identifier (provider/model format) | `deepseek/deepseek-chat` |
 | `TAVILY_API_KEY` | No | Tavily search API key (omit if not using web search) | — |
 | `FLASK_SECRET_KEY` | Yes* | Flask session signing key. Generate: `python -c "import secrets; print(secrets.token_hex(32))"` | — |
 | `WEB_UI_PORT` | No | Web UI port | `7860` |
@@ -288,6 +296,7 @@ lecture_crewLLM/
 | **Single-file indexing** | `index_file()` indexes one file without directory scan | Upload API: O(N)→O(1); skips SHA256 of every file in knowledge/ |
 | **Batch BLIP inference** | Pipeline batch mode (list of images) instead of sequential loop | 2-5× speedup for multi-image documents (e.g., PPTX with 10+ images) |
 | **Sidebar auto-refresh** | `loadCacheStats()` + `loadKnowledge()` after every mutation | Cache count and file list update in real-time without manual refresh |
+| **Server-side Markdown** | Python-Markdown renders on backend, frontend uses `innerHTML` directly | Removed ~165 lines of self-built JS renderer; eliminates regex/placeholder bugs; full GFM support |
 
 ---
 
@@ -329,7 +338,8 @@ lecture_crewLLM/
 | **Smart Routing** | Rule-based + LLM dual routing, Grounding Check, 3-tier similarity gate |
 | **Stability** | Image URL encoding, path traversal guard, filename sanitization, auto cache cleanup |
 | **Interaction** | History search (CLI `find` + Web UI sidebar), click-to-jump results, browser auto-location |
-| **Upload Pipeline** | `index_file()` single-file index + batch BLIP + sidebar auto-refresh | Upload O(N)→O(1), BLIP 2-5× faster, cache/knowledge panels update live |
+| **Upload Pipeline** | Single-file index `index_file()`, batch BLIP, sidebar auto-refresh | Upload O(N)→O(1), BLIP 2-5× faster, live cache/knowledge panel updates |
+| **Test Hardening** | 131→150 tests, 19 new regression tests targeting 10 previously-untested bugs | Keyword boost, filename safety, image validation, cache resilience, web entry filtering |
 
 ---
 
