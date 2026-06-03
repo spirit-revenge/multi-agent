@@ -1,6 +1,6 @@
 # LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](BUG_REPORT.md) ｜ [架构图](picts/diagrams.md) ｜ [未来设想图](picts/feture.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](md/BUG_REPORT.md) ｜ [架构图](md/diagrams.md) ｜ [未来设想图](md/feture.md)
 
 **多智能体讲座分析系统** — 多模态 RAG（文本 + 图片 + 表格）+ 联网搜索 + 交互式 Web UI
 

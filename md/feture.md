@@ -5,4 +5,4 @@
 > [!NOTE]
 > 以下为项目未来构想图，为AI生成，有可能会在以后的时间进行落地
 
-![](https://gitee.com/tianyity/private-pic-resp/raw/master/20260603142028746.png)
+![未来设想图](LectureFetureImage.png)
