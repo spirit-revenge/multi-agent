@@ -15,6 +15,7 @@ venv.bak/
 *.log
 .reasonix/
 images/
+.codegraph/
 
 
 # Database & runtime data
