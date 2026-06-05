@@ -789,6 +789,50 @@ class TestLectureVectorStore:
             store.index_file(str(txt))
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_reindex_preserves_entries_when_file_unchanged(self):
+        """Force reindex of unchanged file should NOT delete its own entries.
+
+        When old_ids == new_ids (same file, same content), the delete step
+        must skip overlapping IDs to avoid wiping fresh data.
+        """
+        store, tmp_dir = self._make_store()
+        from unittest.mock import patch, MagicMock
+
+        file_path = Path(tmp_dir) / "test.pdf"
+        file_path.write_bytes(b"%PDF-1.4 content")
+
+        # Simulate: old entries exist with same ID prefix as new ones would get
+        id_prefix = "test_abc12345"
+        old_ids = [f"{id_prefix}_text_0", f"{id_prefix}_text_1", f"{id_prefix}_img_0"]
+        store.collection.get.return_value = {
+            "ids": old_ids,
+            "metadatas": [
+                {"type": "text", "source": str(file_path)},
+                {"type": "text", "source": str(file_path)},
+                {"type": "image", "source": str(file_path), "image_path": str(tmp_dir / "images" / "old.png")},
+            ],
+        }
+
+        with patch("tools.rag_store.process_document") as mock_proc, \
+             patch("tools.rag_store.describe_images_batch", return_value=[]):
+            mock_proc.return_value = {"texts": ["chunk1", "chunk2"], "images": [], "tables": []}
+            store.collection.add.return_value = None
+
+            store._index_single_file(file_path)
+
+        # Verify: add was called with 2 text entries
+        assert store.collection.add.called
+        new_ids = store.collection.add.call_args[1]["ids"]
+        assert len(new_ids) == 2
+
+        # Verify: delete was called, but only with non-overlapping IDs
+        if store.collection.delete.called:
+            deleted_ids = store.collection.delete.call_args[1].get("ids", [])
+            for nid in new_ids:
+                assert nid not in deleted_ids, f"Newly added ID {nid} should not be deleted"
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 @pytest.fixture(autouse=True)
 def cleanup_temp():

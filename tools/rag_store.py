@@ -542,15 +542,19 @@ class LectureVectorStore:
         if ids:
             self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
 
-            # Delete old entries by ID (not by source — that would match the
-            # entries we just added).  Also clean up old image files.
+            # Delete old entries by ID — but only those that don't overlap with
+            # the new IDs.  When force_reindex=True and the file hasn't changed,
+            # old and new IDs are identical; deleting would wipe the fresh data.
             removed = 0
             if old_ids:
-                try:
-                    self.collection.delete(ids=old_ids)
-                    removed = len(old_ids)
-                except Exception as e:
-                    logger.warning("Failed to delete old entries: %s", e)
+                new_id_set = set(ids)
+                stale_ids = [oid for oid in old_ids if oid not in new_id_set]
+                if stale_ids:
+                    try:
+                        self.collection.delete(ids=stale_ids)
+                        removed = len(stale_ids)
+                    except Exception as e:
+                        logger.warning("Failed to delete old entries: %s", e)
             # Only delete old image files that are NOT referenced by new entries.
             # (When the document hasn't changed, old and new filenames are the
             # same — deleting them would wipe out the images we just saved.)
