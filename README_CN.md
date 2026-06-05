@@ -1,6 +1,6 @@
 # LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](md/BUG_REPORT.md) ｜ [架构图](md/diagrams.md) ｜ [未来设想图](md/feture.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](md/BUG_REPORT.md) ｜ [架构图](md/diagrams.md) ｜ [未来设想图](md/feture.md) | [缺陷](md/gaps.md)
 
 **多智能体讲座分析系统** — 多模态 RAG（文本 + 图片 + 表格）+ 联网搜索 + 交互式 Web UI
 
@@ -88,9 +88,9 @@ flowchart TD
 
 | Agent | 职责 | LLM | Token |
 |-------|------|-----|-------|
-| **🎯 意图路由器 (Router)** | 判断问题类别：lecture / web / hybrid / unknown | DeepSeek, temp=0.1 | ~50 |
-| **✅ 相关性验证员 (Guard)** | 边界案例判断 RAG 结果是否语义相关（区分关键词重叠） | DeepSeek, temp=0.1 | ~200 |
-| **📝 讲座分析师 (Analyst)** | 综合 RAG + 搜索信息，生成结构化中文 Markdown 回答 | DeepSeek, temp=0.7 | ~1000-2000 |
+| **意图路由器 (Router)** | 判断问题类别：lecture / web / hybrid / unknown | DeepSeek, temp=0.1 | ~50 |
+| **相关性验证员 (Guard)** | 边界案例判断 RAG 结果是否语义相关（区分关键词重叠） | DeepSeek, temp=0.1 | ~200 |
+| **讲座分析师 (Analyst)** | 综合 RAG + 搜索信息，生成结构化中文 Markdown 回答 | DeepSeek, temp=0.7 | ~1000-2000 |
 
 ### 多模态 RAG 管道
 
@@ -223,6 +223,7 @@ lecture_crewLLM/
 ├── conversations/sessions/          # 会话文件（自动生成）
 ├── cache/                           # 缓存（自动生成）
 └── output/                          # 答案导出（自动生成）
+```
 
 ---
 

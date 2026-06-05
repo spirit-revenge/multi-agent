@@ -1,6 +1,6 @@
 # LectureCrewLLM
 
-[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](md/BUG_REPORT.md) ｜ [架构图](md/diagrams.md) ｜ [未来设想图](md/feture.md)
+[English](README.md) | [中文](README_CN.md) | [BUG_REPORT](md/BUG_REPORT.md) ｜ [架构图](md/diagrams.md) ｜ [未来设想图](md/feture.md) | [项目缺陷](md/gaps.md)
 
 **Multi-Agent Lecture Analysis System** — Multi-modal RAG (text + images + tables) + web search + interactive Web UI
 
@@ -88,9 +88,9 @@ flowchart TD
 
 | Agent | Role | LLM | Tokens |
 |-------|------|-----|--------|
-| **🎯 Router** | Classify intent: lecture / web / hybrid / unknown | DeepSeek, temp=0.1 | ~50 |
-| **✅ Guard** | Verify RAG results are semantically relevant (not just keyword overlap) | DeepSeek, temp=0.1 | ~200 |
-| **📝 Analyst** | Synthesize RAG + search results into structured Chinese Markdown | DeepSeek, temp=0.7 | ~1000-2000 |
+| **Router** | Classify intent: lecture / web / hybrid / unknown | DeepSeek, temp=0.1 | ~50 |
+| **Guard** | Verify RAG results are semantically relevant (not just keyword overlap) | DeepSeek, temp=0.1 | ~200 |
+| **Analyst** | Synthesize RAG + search results into structured Chinese Markdown | DeepSeek, temp=0.7 | ~1000-2000 |
 
 ### Multi-Modal RAG Pipeline
 
